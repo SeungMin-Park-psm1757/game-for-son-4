@@ -1,0 +1,16 @@
+{
+    "name": "마이 리틀 브라키오",
+    "short_name": "브라키오",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#eff6ff",
+    "theme_color": "#3b82f6",
+    "description": "아빠가 만든 브라키오 다마고치",
+    "icons": [
+        {
+            "src": "data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🦕</text></svg>",
+            "sizes": "192x192 512x512",
+            "type": "image/svg+xml"
+        }
+    ]
+}

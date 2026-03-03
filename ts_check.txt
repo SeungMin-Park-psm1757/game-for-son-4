@@ -1,0 +1,5 @@
+src/canvas.ts(322,9): error TS6133: 'headX' is declared but its value is never read.
+src/canvas.ts(322,24): error TS6133: 'headY' is declared but its value is never read.
+src/minigames/MinigameRunner.ts(5,1): error TS6133: 'MG_BALANCE' is declared but its value is never read.
+src/minigames/MinigameRunner.ts(14,13): error TS6133: 'titleEl' is declared but its value is never read.
+src/minigames/SortBaskets.ts(40,13): error TS6133: 'pointerStartY' is declared but its value is never read.
