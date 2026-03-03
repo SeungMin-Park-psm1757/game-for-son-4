@@ -85,60 +85,24 @@ export class CanvasRenderer {
     private ctx: CanvasRenderingContext2D;
     private width: number;
     private height: number;
-    private bgImages: Record<string, HTMLImageElement> = {};
-    private isBgLoaded: boolean = false;
-
     constructor(canvasElement: HTMLCanvasElement, private fsm: FSM) {
         this.ctx = canvasElement.getContext('2d')!;
         this.width = canvasElement.width;
         this.height = canvasElement.height;
-        this.loadAssets();
     }
 
-    private async loadAssets() {
-        const paths = {
-            jungle: './assets/bg_jungle.png',
-            rocky: './assets/bg_rocky.png',
-            path: './assets/bg_path.png',
-            cave: './assets/bg_cave.png'
-        };
-        const entries = Object.entries(paths);
-        let loadedCount = 0;
-        for (const [key, path] of entries) {
-            const img = new Image();
-            img.onload = () => {
-                this.bgImages[key] = img;
-                loadedCount++;
-                if (loadedCount === entries.length) this.isBgLoaded = true;
-            };
-            img.src = path;
-        }
-    }
+    private drawBackground(_state: PetState, _animId?: string) {
+        // Simple beige background
+        this.ctx.fillStyle = '#fef3c7'; // warm amber-50
+        this.ctx.fillRect(0, 0, this.width, this.height);
 
-    private drawBackground(state: PetState, animId?: string) {
-        if (!this.isBgLoaded) {
-            this.ctx.fillStyle = '#f5f5f4'; // Beige fallback
-            this.ctx.fillRect(0, 0, this.width, this.height);
-            return;
-        }
-
-        let bgKey = 'jungle';
-        if (state === 'Sleep' || state === 'Sick' || state === 'Dirty') {
-            bgKey = 'cave';
-        } else if (animId === 'train_walk') {
-            bgKey = 'path';
-        } else if (animId?.startsWith('train_') || animId?.startsWith('interact_')) {
-            bgKey = 'rocky';
-        }
-
-        const img = this.bgImages[bgKey];
-        if (img) {
-            // Draw background scaled to cover the canvas
-            const scale = Math.max(this.width / img.width, this.height / img.height);
-            const x = (this.width / 2) - (img.width / 2) * scale;
-            const y = (this.height / 2) - (img.height / 2) * scale;
-            this.ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
-        }
+        // Ground line
+        this.ctx.strokeStyle = '#d97706';
+        this.ctx.lineWidth = 2;
+        this.ctx.beginPath();
+        this.ctx.moveTo(0, this.height / 2 + 80);
+        this.ctx.lineTo(this.width, this.height / 2 + 80);
+        this.ctx.stroke();
     }
 
     private darkenColor(color: string, percent: number): string {
@@ -151,27 +115,30 @@ export class CanvasRenderer {
         return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
     }
 
+    private lightenColor(color: string, percent: number): string {
+        let r = parseInt(color.substring(1, 3), 16);
+        let g = parseInt(color.substring(3, 5), 16);
+        let b = parseInt(color.substring(5, 7), 16);
+        r = Math.min(255, Math.floor(r + (255 - r) * percent / 100));
+        g = Math.min(255, Math.floor(g + (255 - g) * percent / 100));
+        b = Math.min(255, Math.floor(b + (255 - b) * percent / 100));
+        return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+    }
+
     /** Draw one chunky pillar leg with 3 toe-bumps scaled with body */
     private drawLeg(x: number, y: number, length: number, color: string, scale: number = 1.0) {
-        const w = 15 * scale;
+        const w = 13 * scale;
         this.ctx.fillStyle = color;
-        this.ctx.strokeStyle = '#422006'; // Sepia outline
-        this.ctx.lineWidth = 1.6 * scale;
-
-        // Tapered stumpy leg
         this.ctx.beginPath();
-        this.ctx.moveTo(x - w * 0.8, y);
-        this.ctx.bezierCurveTo(x - w, y + length * 0.5, x - w, y + length, x - w, y + length);
-        this.ctx.lineTo(x + w, y + length);
-        this.ctx.bezierCurveTo(x + w, y + length, x + w, y + length * 0.5, x + w * 0.8, y);
-        this.ctx.closePath();
+        (this.ctx as any).roundRect(x - w, y, w * 2, length, [6 * scale, 6 * scale, 0, 0]);
         this.ctx.fill();
-        this.ctx.stroke();
 
-        // Ankle crease
+        // Ankle shadow line
+        this.ctx.strokeStyle = this.darkenColor(color, 12);
+        this.ctx.lineWidth = 1.5 * scale;
         this.ctx.beginPath();
-        this.ctx.moveTo(x - w * 0.6, y + length - 8 * scale);
-        this.ctx.quadraticCurveTo(x, y + length - 6 * scale, x + w * 0.6, y + length - 8 * scale);
+        this.ctx.moveTo(x - w + 2 * scale, y + length - 5 * scale);
+        this.ctx.lineTo(x + w - 2 * scale, y + length - 5 * scale);
         this.ctx.stroke();
 
         // Toe bumps
@@ -188,6 +155,20 @@ export class CanvasRenderer {
             this.ctx.arc(x + t * 9 * scale, footY + 3 * scale, 4.5 * scale, Math.PI * 0.85, Math.PI * 2.15);
             this.ctx.stroke();
         }
+    }
+
+    private drawBlush(x: number, y: number, color: string, scale: number) {
+        const ctx = this.ctx;
+        const s = scale;
+        const grad = ctx.createRadialGradient(x, y, 0, x, y, 8 * s);
+        grad.addColorStop(0, color);
+        grad.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = grad;
+        ctx.globalAlpha = 0.6;
+        ctx.beginPath();
+        ctx.ellipse(x, y, 10 * s, 6 * s, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1.0;
     }
 
     // ─── Expression drawing ────────────────────────────────────────────────
@@ -401,13 +382,11 @@ export class CanvasRenderer {
         this.drawExpressionEye(eye1X, eyeY, e1, true, faceScale);
         this.drawExpressionEye(eye2X, eyeY, e2, false, faceScale);
 
-        // Blush (REMOVED as per user request for less awkward look)
-        /*
+        // Blush
         if (expression.blush && !overrideBlink) {
             this.drawBlush(eye1X - 6 * faceScale, eyeY + 9 * faceScale, expression.blushColor || '#fca5a5', faceScale);
             this.drawBlush(eye2X + 6 * faceScale, eyeY + 9 * faceScale, expression.blushColor || '#fca5a5', faceScale);
         }
-        */
 
         // Mouth
         /*
@@ -505,16 +484,16 @@ export class CanvasRenderer {
         if (flipH) this.ctx.scale(-1, 1);
 
         // ── Body color by state ───────────────────────────────────────────
-        let bodyColor = '#a7f3d0'; // Softer Watercolor green
-        if (state === 'Hungry') bodyColor = '#fecaca';
-        else if (state === 'Dirty') bodyColor = '#d1d5db';
-        else if (state === 'Sleepy') bodyColor = '#bfdbfe';
+        let bodyColor = '#86efac';
+        if (state === 'Hungry') bodyColor = '#fca5a5';
+        else if (state === 'Dirty') bodyColor = '#cbd5e1';
+        else if (state === 'Sleepy') bodyColor = '#93c5fd';
         else if (state === 'Sleep') bodyColor = '#1e3a8a';
-        else if (state === 'Naughty') bodyColor = '#fdba74';
-        else if (state === 'Sick') bodyColor = '#d9f99d';
+        else if (state === 'Naughty') bodyColor = '#fb923c';
+        else if (state === 'Sick') bodyColor = '#bef264';
 
-        const darkColor = this.darkenColor(bodyColor, 15);
-        const sepiaColor = '#422006'; // Dark sepia pencil
+        const darkColor = this.darkenColor(bodyColor, 18);
+        const lightColor = this.lightenColor(bodyColor, 30);
 
         const tier = this.fsm.stats.evolutionTier;
 
@@ -522,75 +501,55 @@ export class CanvasRenderer {
         const bodyRadiusX = BASE_BRX;
         const bodyRadiusY = BASE_BRY;
 
-        // Neck length & head position (Elegantly long neck)
-        const neckLen = (70 + tier * 40) * sizeMul;
-        const headX = (45 + headOscillationX) * sizeMul;
+        // Neck length & head position scale with age
+        const neckLen = (60 + tier * 35) * sizeMul;
+        const headX = (32 + headOscillationX) * sizeMul;
         const headY = -neckLen + headOscillationY;
 
-        // Head shape: more integrated with neck
-        const headRX = 28 * sizeMul;
-        const headRY = 24 * sizeMul * roundness;
-        const snoutRX = 24 * sizeMul;
-        const snoutRY = 16 * sizeMul * roundness;
+        // Head shape: younger = rounder
+        const headRX = 26 * sizeMul;
+        const headRY = headRX * roundness;
+        const snoutRX = 22 * sizeMul;
+        const snoutRY = 14 * sizeMul * roundness;
 
-        // Face scale
+        // Face scale for expressions
         const faceScale = sizeMul;
 
-        // Eye positions (matching the cute sticker look)
-        const eye1X = headX - 4 * sizeMul;
-        const eye2X = headX + 16 * sizeMul;
-        const eyeY = headY - 6 * sizeMul;
-        const mouthX = headX + 10 * sizeMul;
-        const mouthY = headY + 14 * sizeMul;
+        // Eye positions
+        const eye1X = headX - 5 * sizeMul;
+        const eye2X = headX + 14 * sizeMul;
+        const eyeY = headY - 5 * sizeMul;
+        const mouthX = headX + 8 * sizeMul;
+        const mouthY = headY + 12 * sizeMul;
 
         // ── Shadow ────────────────────────────────────────────────────────
-        this.ctx.fillStyle = 'rgba(66, 32, 6, 0.08)'; // Sepia toned shadow
+        this.ctx.fillStyle = 'rgba(0,0,0,0.10)';
         this.ctx.beginPath();
-        this.ctx.ellipse(0, bodyRadiusY + 55 * sizeMul, bodyRadiusX + 10, 12 * sizeMul, 0, 0, Math.PI * 2);
+        this.ctx.ellipse(0, bodyRadiusY + 55 * sizeMul, bodyRadiusX + 15, 10 * sizeMul, 0, 0, Math.PI * 2);
         this.ctx.fill();
 
         // ─── 1. TAIL ──────────────────────────────────────────────────────
-        this.ctx.fillStyle = bodyColor;
-        this.ctx.strokeStyle = sepiaColor;
-        this.ctx.lineWidth = 1.6 * sizeMul;
+        this.ctx.strokeStyle = bodyColor;
+        this.ctx.lineWidth = (16 + tier * 2) * sizeMul;
         this.ctx.lineCap = 'round';
-        this.ctx.lineJoin = 'round';
-
         this.ctx.beginPath();
-        const tailStartX = -bodyRadiusX * 0.8;
-        const tailStartY = 25 * sizeMul;
-        this.ctx.moveTo(tailStartX, tailStartY);
-        // Tapered curve to point
-        this.ctx.quadraticCurveTo(-bodyRadiusX * 1.5, tailStartY, -bodyRadiusX * 1.8 - tier * 10 * sizeMul, 45 * sizeMul + tailWag);
-        this.ctx.quadraticCurveTo(-bodyRadiusX * 1.5, tailStartY + 15 * sizeMul, tailStartX, tailStartY + 35 * sizeMul);
-        this.ctx.fill();
+        this.ctx.moveTo(-bodyRadiusX + 18, 40 * sizeMul);
+        this.ctx.quadraticCurveTo(-bodyRadiusX - 25, 35 * sizeMul, -bodyRadiusX - 42 * sizeMul - tier * 8 * sizeMul, 60 * sizeMul + tailWag);
         this.ctx.stroke();
-
-        this.drawDirtSpot(-bodyRadiusX * 1.2, 40 * sizeMul + tailWag * 0.5, 18, 9, this.fsm.stats.spotDirt.tail, 'tail');
+        this.drawDirtSpot(-bodyRadiusX - 14, 48 * sizeMul + tailWag * 0.5, 22, 11, this.fsm.stats.spotDirt.tail, 'tail');
 
         // ─── 2. BACK LEGS ─────────────────────────────────────────────────
-        this.drawLeg(-bodyRadiusX * 0.55, 52 * sizeMul, 45 * sizeMul, darkColor, sizeMul);
-        this.drawLeg(bodyRadiusX * 0.35, 52 * sizeMul, 45 * sizeMul, darkColor, sizeMul);
+        this.drawLeg(-bodyRadiusX * 0.42, 58 * sizeMul, 46 * sizeMul, darkColor, sizeMul);
+        this.drawLeg(bodyRadiusX * 0.42, 58 * sizeMul, 46 * sizeMul, darkColor, sizeMul);
 
         // ─── 3. NECK ─────────────────────────────────────────────────────
-        this.ctx.fillStyle = bodyColor;
-        this.ctx.strokeStyle = sepiaColor;
-        this.ctx.lineWidth = 1.6 * sizeMul;
-
+        this.ctx.strokeStyle = bodyColor;
+        this.ctx.lineWidth = (22 + tier * 3) * sizeMul;
         this.ctx.beginPath();
-        const neckStartX = bodyRadiusX * 0.1;
-        const neckStartY = 15 * sizeMul;
-        // Outer curve
-        this.ctx.moveTo(neckStartX, neckStartY);
-        this.ctx.quadraticCurveTo(bodyRadiusX * 0.6 + headOscillationX * 0.5, -neckLen * 0.5, headX + headRX * 0.2, headY + headRY * 0.5);
-        // Head back
-        this.ctx.lineTo(headX - headRX * 0.8, headY - headRY * 0.3);
-        // Inner curve
-        this.ctx.quadraticCurveTo(bodyRadiusX * 0.1, -neckLen * 0.4, neckStartX - 25 * sizeMul, neckStartY + 10 * sizeMul);
-        this.ctx.fill();
+        this.ctx.moveTo(-8 * sizeMul, 35 * sizeMul);
+        this.ctx.quadraticCurveTo(18 * sizeMul + headOscillationX * 0.5, 10 * sizeMul + headOscillationY * 0.5, headX, headY + 14 * sizeMul);
         this.ctx.stroke();
-
-        this.drawDirtSpot((headX + neckStartX) / 2, (headY + 15 * sizeMul) / 2, 12, 20, this.fsm.stats.spotDirt.neck, 'neck');
+        this.drawDirtSpot((headX - 8 * sizeMul) / 2, (headY + 14 * sizeMul + 35 * sizeMul) / 2, 13, 22, this.fsm.stats.spotDirt.neck, 'neck');
 
         // ─── Bath prop ────────────────────────────────────────────────────
         if (this.fsm.activeAnimation?.id === 'wash_bath') {
@@ -604,43 +563,44 @@ export class CanvasRenderer {
             this.ctx.fill();
         }
 
-        // ─── 4. BODY (Pear-Shaped Redesign) ───────────────────────────────
+        // ─── 4. BODY ─────────────────────────────────────────────────────
+        // Main body ellipse
         this.ctx.fillStyle = bodyColor;
-        this.ctx.strokeStyle = sepiaColor;
-        this.ctx.lineWidth = 1.6 * sizeMul;
-
         this.ctx.beginPath();
-        const bW = bodyRadiusX;
-        const bH = bodyRadiusY * 1.1;
-        // Start top-back
-        this.ctx.moveTo(-bW * 0.6, 15 * sizeMul);
-        // Back to tail-base
-        this.ctx.bezierCurveTo(-bW, 10 * sizeMul, -bW * 1.2, 50 * sizeMul, -bW * 0.5, 75 * sizeMul);
-        // Belly base
-        this.ctx.bezierCurveTo(-bW * 0.2, 85 * sizeMul, bW * 0.6, 85 * sizeMul, bW, 60 * sizeMul);
-        // Front chest
-        this.ctx.bezierCurveTo(bW * 1.1, 40 * sizeMul, bW * 0.8, 15 * sizeMul, bW * 0.2, 15 * sizeMul);
-        this.ctx.closePath();
+        this.ctx.ellipse(0, 42 * sizeMul, bodyRadiusX, bodyRadiusY, -0.05, 0, Math.PI * 2);
         this.ctx.fill();
-        this.ctx.stroke();
 
-        // Belly gradient (watercolor feel)
-        const grad = this.ctx.createRadialGradient(bW * 0.2, 60 * sizeMul, 5, bW * 0.2, 60 * sizeMul, bW * 0.8);
-        grad.addColorStop(0, 'rgba(255,255,255,0.4)');
+        // Belly gradient highlight (cute chubby look)
+        const grad = this.ctx.createRadialGradient(6 * sizeMul, 52 * sizeMul, 2, 6 * sizeMul, 52 * sizeMul, bodyRadiusX * 0.8);
+        grad.addColorStop(0, 'rgba(255,255,255,0.28)');
         grad.addColorStop(1, 'rgba(255,255,255,0)');
         this.ctx.fillStyle = grad;
+        this.ctx.beginPath();
+        this.ctx.ellipse(6 * sizeMul, 52 * sizeMul, bodyRadiusX * 0.7, bodyRadiusY * 0.7, 0, 0, Math.PI * 2);
         this.ctx.fill();
 
-        // Sketched dorsal highlights
-        this.ctx.strokeStyle = 'rgba(255,255,255,0.3)';
-        this.ctx.lineWidth = 3 * sizeMul;
+        // Dorsal ridge
+        this.ctx.strokeStyle = darkColor;
+        this.ctx.lineWidth = 2.5 * sizeMul;
+        this.ctx.lineCap = 'round';
         this.ctx.beginPath();
-        this.ctx.moveTo(-bW * 0.4, 20 * sizeMul);
-        this.ctx.quadraticCurveTo(0, 15 * sizeMul, bW * 0.4, 25 * sizeMul);
+        this.ctx.moveTo(-bodyRadiusX * 0.62, 8 * sizeMul);
+        this.ctx.quadraticCurveTo(-bodyRadiusX * 0.08, -10 * sizeMul, bodyRadiusX * 0.22, 4 * sizeMul);
         this.ctx.stroke();
 
+        // Subtle scale ellipses
+        this.ctx.fillStyle = darkColor;
+        this.ctx.globalAlpha = 0.28;
+        const scales = [[-28 - weightFactor * 6, 18, 11, 7, -0.3], [-5, 3, 15, 9, 0.1], [20 + weightFactor * 4, 14, 10, 6, 0.4]] as const;
+        for (const [sx, sy, srx, sry, rot] of scales) {
+            this.ctx.beginPath();
+            this.ctx.ellipse(sx * sizeMul, sy * sizeMul, srx * sizeMul, sry * sizeMul, rot, 0, Math.PI * 2);
+            this.ctx.fill();
+        }
+        this.ctx.globalAlpha = 1;
+
         // Body dirt
-        this.drawDirtSpot(0, 50 * sizeMul, bW * 0.8, bH * 0.6, this.fsm.stats.spotDirt.body, 'body');
+        this.drawDirtSpot(0, 42 * sizeMul, bodyRadiusX, bodyRadiusY, this.fsm.stats.spotDirt.body, 'body');
 
         // ─── 5. FRONT LEGS ────────────────────────────────────────────────
         // Leg animation
@@ -678,29 +638,23 @@ export class CanvasRenderer {
 
         // ─── 6. HEAD ─────────────────────────────────────────────────────
         this.ctx.fillStyle = bodyColor;
-        this.ctx.strokeStyle = sepiaColor;
-        this.ctx.lineWidth = 1.6 * sizeMul;
-
         // Skull dome
         this.ctx.beginPath();
         this.ctx.ellipse(headX, headY, headRX, headRY, 0.1, 0, Math.PI * 2);
         this.ctx.fill();
-        this.ctx.stroke();
-
         // Snout – wider when young (cute pug), flatter when older
         this.ctx.beginPath();
         this.ctx.ellipse(headX + 17 * sizeMul, headY + 7 * sizeMul, snoutRX, snoutRY, 0.15, 0, Math.PI * 2);
         this.ctx.fill();
-        this.ctx.stroke();
-
-        // Cheek highlight (watercolor bubble)
-        this.ctx.fillStyle = 'rgba(255,255,255,0.4)';
+        // Cheek bulge (cute)
+        this.ctx.fillStyle = lightColor;
+        this.ctx.globalAlpha = 0.35;
         this.ctx.beginPath();
         this.ctx.ellipse(headX + 5 * sizeMul, headY + 10 * sizeMul, 12 * sizeMul, 9 * sizeMul, 0, 0, Math.PI * 2);
         this.ctx.fill();
-
+        this.ctx.globalAlpha = 1;
         // Nostril
-        this.ctx.fillStyle = sepiaColor;
+        this.ctx.fillStyle = darkColor;
         this.ctx.beginPath();
         this.ctx.ellipse(headX + 28 * sizeMul, headY + 4 * sizeMul, 3.5 * sizeMul, 2.5 * sizeMul, 0.3, 0, Math.PI * 2);
         this.ctx.fill();
