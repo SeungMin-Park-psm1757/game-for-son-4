@@ -9,18 +9,18 @@
   <link rel="icon"
     href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🦕</text></svg>">
   <title>마이 리틀 브라키오</title>
-  <script type="module" crossorigin src="/game-for-son-4/assets/index-CXTthB4e.js"></script>
-  <link rel="stylesheet" crossorigin href="/game-for-son-4/assets/index-LoFZ-yl-.css">
+  <script type="module" crossorigin src="/game-for-son-4/assets/index-DWXLYoWh.js"></script>
+  <link rel="stylesheet" crossorigin href="/game-for-son-4/assets/index-Bt3O6d4V.css">
 <link rel="manifest" href="/game-for-son-4/manifest.webmanifest"></head>
 
 <body class="touch-manipulation text-slate-900 antialiased">
   <div class="app-shell">
-    <div id="app" class="phone-shell relative mx-auto flex h-[100dvh] max-w-md flex-col overflow-hidden">
+    <div id="app" class="phone-shell relative mx-auto flex h-[100dvh] w-full min-h-0 max-w-md flex-col overflow-hidden">
       <div class="scene-noise"></div>
       <div class="ambient-glow ambient-glow-a"></div>
       <div class="ambient-glow ambient-glow-b"></div>
 
-      <header class="hud-panel relative z-20">
+      <header class="hud-panel relative z-20 shrink-0">
         <div class="flex items-start justify-between gap-3">
           <div class="min-w-0">
             <p class="hud-kicker">Pocket Dino Friend</p>
@@ -66,8 +66,8 @@
         <div id="status-bars" class="mt-4 grid grid-cols-2 gap-2 text-[10px] font-bold sm:grid-cols-4"></div>
       </header>
 
-      <main class="relative z-10 flex-1 overflow-hidden px-3 pb-2">
-        <div id="main-canvas" class="relative flex h-full flex-col">
+      <main class="relative z-10 flex-1 min-h-0 overflow-hidden px-3 pb-2">
+        <div id="main-canvas" class="relative flex h-full min-h-0 flex-col">
           <div class="pointer-events-none absolute inset-x-0 top-5 z-10 flex justify-center">
             <div id="state-text" class="state-banner">기분이 좋아요! 🌿</div>
           </div>
@@ -76,12 +76,12 @@
             <div id="sleep-alert" class="sleep-alert hidden">잘 시간이에요. 재워줄까요?</div>
           </div>
 
-          <button id="btn-encyclopedia" class="guide-fab absolute bottom-6 right-3 z-20" aria-label="수첩 열기">
+          <button id="btn-encyclopedia" class="guide-fab absolute bottom-4 right-3 z-20" aria-label="수첩 열기">
             <span>📖</span>
             <span>수첩</span>
           </button>
 
-          <div class="stage-card relative mt-14 flex flex-1 items-center justify-center overflow-hidden rounded-[2rem]">
+          <div class="stage-card relative mt-12 flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-[2rem]">
             <div class="stage-sun"></div>
             <div class="stage-cloud stage-cloud-a"></div>
             <div class="stage-cloud stage-cloud-b"></div>
@@ -91,13 +91,13 @@
               건너뛰기
             </button>
             <canvas id="pet-canvas" width="400" height="400"
-              class="relative z-10 max-h-full max-w-full drop-shadow-[0_26px_32px_rgba(42,61,72,0.22)]"></canvas>
+              class="stage-canvas relative z-10 h-full w-full max-h-full max-w-full drop-shadow-[0_26px_32px_rgba(42,61,72,0.22)]"></canvas>
           </div>
 
           <div id="submenu-overlay"
             class="absolute inset-0 z-30 hidden flex-col justify-end bg-slate-900/30 backdrop-blur-[2px]">
             <div id="submenu-sheet"
-              class="translate-y-full rounded-t-[2rem] border-t border-white/60 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(245,248,250,0.98))] px-4 pb-6 pt-4 shadow-2xl transition-transform duration-300">
+              class="submenu-sheet translate-y-full flex max-h-[min(82dvh,36rem)] flex-col overflow-hidden rounded-t-[2rem] border-t border-white/60 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(245,248,250,0.98))] px-4 pb-6 pt-4 shadow-2xl transition-transform duration-300">
               <div class="mb-4 flex items-center justify-between gap-3">
                 <div>
                   <p class="text-[11px] font-bold uppercase tracking-[0.18em] text-teal-600">Action Menu</p>
@@ -105,12 +105,12 @@
                 </div>
                 <button id="btn-close-submenu" class="sheet-close-btn">닫기</button>
               </div>
-              <div id="submenu-options" class="grid grid-cols-2 gap-3"></div>
+              <div id="submenu-options" class="submenu-options grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-y-auto pb-1 pr-1 sm:grid-cols-2"></div>
             </div>
           </div>
 
           <div id="shop-overlay"
-            class="absolute inset-0 z-40 hidden flex-col overflow-y-auto rounded-[2rem] bg-[linear-gradient(180deg,#fcfffe_0%,#eef7f2_100%)]">
+            class="overlay-scroll absolute inset-0 z-40 hidden flex-col overflow-y-auto rounded-[2rem] bg-[linear-gradient(180deg,#fcfffe_0%,#eef7f2_100%)]">
             <div class="sticky top-0 z-10 border-b border-emerald-100 bg-white/90 px-4 py-4 backdrop-blur">
               <div class="flex items-center justify-between gap-3">
                 <div>
@@ -139,7 +139,7 @@
                   <h3 class="text-base font-black text-slate-800">먹이</h3>
                   <span class="text-[11px] font-semibold text-slate-400">배고픔과 기분을 챙겨요</span>
                 </div>
-                <div id="shop-feed-items" class="grid grid-cols-2 gap-3 text-xs"></div>
+                <div id="shop-feed-items" class="grid grid-cols-1 gap-3 text-xs sm:grid-cols-2"></div>
               </section>
 
               <section>
@@ -153,7 +153,7 @@
           </div>
 
           <div id="arbeit-overlay"
-            class="absolute inset-0 z-50 hidden flex-col overflow-y-auto rounded-[2rem] bg-[linear-gradient(180deg,#fff6e9_0%,#fffcf4_100%)] px-4 py-5">
+            class="overlay-scroll absolute inset-0 z-50 hidden flex-col overflow-y-auto rounded-[2rem] bg-[linear-gradient(180deg,#fff6e9_0%,#fffcf4_100%)] px-4 py-5">
             <div class="mb-4 text-center">
               <p class="text-[11px] font-bold uppercase tracking-[0.18em] text-orange-500">Part-time Jobs</p>
               <h2 class="text-2xl font-black text-slate-900">오늘의 아르바이트</h2>
@@ -334,7 +334,7 @@
               <button id="btn-close-encyclopedia" class="overlay-pill overlay-pill-indigo">닫기</button>
             </div>
 
-            <div id="enc-content" class="flex-1 overflow-y-auto px-4 py-4"></div>
+            <div id="enc-content" class="overlay-scroll flex-1 overflow-y-auto px-4 py-4"></div>
           </div>
 
           <div id="intro-overlay"
@@ -405,7 +405,7 @@
         </div>
       </main>
 
-      <footer class="action-dock relative z-20 px-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-3">
+      <footer class="action-dock relative z-20 shrink-0 px-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-3">
         <div id="interaction-buttons" class="grid grid-cols-6 gap-2"></div>
       </footer>
     </div>
