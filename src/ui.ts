@@ -497,7 +497,7 @@ export class UIManager {
     private openSubmenu(title: string, categoryId: CategoryId) {
         const items = getActionsByCategory(categoryId);
         this.submenuTitle.innerText = title;
-        this.submenuOptions.className = 'grid grid-cols-2 gap-3';
+        this.submenuOptions.className = 'submenu-options grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-y-auto pb-1 pr-1 sm:grid-cols-2';
         this.submenuOptions.innerHTML = items.map((it, i) => {
             const hasItem = this.fsm.hasItem(it.id);
             const count = this.fsm.stats.inventory[it.id] || 0;
@@ -545,18 +545,18 @@ export class UIManager {
             }
 
             return `
-      <button class="group flex min-h-[10.25rem] flex-col rounded-[1.6rem] border border-slate-200 bg-white/95 px-4 py-4 text-left shadow-sm transition-all active:scale-[0.98] ${!isEnabled ? 'opacity-45 grayscale' : 'hover:-translate-y-[1px] hover:shadow-md'}" id="submenu-btn-${i}">
+      <button class="submenu-card group ${!isEnabled ? 'opacity-45 grayscale' : 'hover:-translate-y-[1px] hover:shadow-md'}" id="submenu-btn-${i}">
         <div class="flex items-center justify-between gap-2">
-          <span class="text-3xl">${it.icon}</span>
-          <span class="rounded-full px-2.5 py-1 text-[10px] font-black ${badgeClass}">${badgeLabel}</span>
+          <span class="submenu-card-icon">${it.icon}</span>
+          <span class="submenu-card-badge ${badgeClass}">${badgeLabel}</span>
         </div>
         <div class="mt-3">
-          <div class="text-[15px] font-black tracking-[-0.03em] text-slate-900">${it.label}</div>
-          <p class="mt-1 text-[11px] leading-4 text-slate-500">${it.desc}</p>
+          <div class="submenu-card-title">${it.label}</div>
+          <p class="submenu-card-desc">${it.desc}</p>
         </div>
         <div class="mt-auto flex items-end justify-between gap-3 pt-4">
-          <span class="max-w-[7.5rem] text-[11px] font-semibold leading-4 text-slate-400">${footerHint}</span>
-          <span class="shrink-0 text-sm font-black ${footerValueClass}">${footerValue}</span>
+          <span class="submenu-card-hint">${footerHint}</span>
+          <span class="submenu-card-value shrink-0 ${footerValueClass}">${footerValue}</span>
         </div>
       </button>
     `;
@@ -642,9 +642,9 @@ export class UIManager {
         ];
 
         this.buttonsElement.innerHTML = mainBtns.map(b => `
-      <button id="${b.id}" class="relative flex min-h-[4.95rem] flex-col items-center justify-center rounded-[1.35rem] border border-slate-200/90 bg-white/96 px-1 py-2 text-slate-700 shadow-sm transition-all active:scale-[0.97]">
-        <span class="text-[1.45rem] leading-none">${b.icon}</span>
-        <span class="mt-1 text-[10px] font-black leading-tight tracking-[-0.03em] whitespace-nowrap">${b.text}</span>
+      <button id="${b.id}" class="main-action-btn relative">
+        <span class="main-action-icon">${b.icon}</span>
+        <span class="main-action-label">${b.text}</span>
       </button>
     `).join('');
 

@@ -89,13 +89,34 @@ function legSpeedDivisor(ageYears: number): number {
 
 // ─────────────────────────────────────────────────────────────────────────────
 export class CanvasRenderer {
+    private canvas: HTMLCanvasElement;
     private ctx: CanvasRenderingContext2D;
     private width: number;
     private height: number;
     constructor(canvasElement: HTMLCanvasElement, private fsm: FSM) {
+        this.canvas = canvasElement;
         this.ctx = canvasElement.getContext('2d')!;
         this.width = canvasElement.width;
         this.height = canvasElement.height;
+        this.syncCanvasSize();
+    }
+
+    private syncCanvasSize() {
+        const dpr = Math.max(1, window.devicePixelRatio || 1);
+        const cssWidth = Math.max(1, Math.floor(this.canvas.clientWidth || this.canvas.width));
+        const cssHeight = Math.max(1, Math.floor(this.canvas.clientHeight || this.canvas.height));
+        const pixelWidth = Math.floor(cssWidth * dpr);
+        const pixelHeight = Math.floor(cssHeight * dpr);
+
+        if (this.canvas.width !== pixelWidth || this.canvas.height !== pixelHeight) {
+            this.canvas.width = pixelWidth;
+            this.canvas.height = pixelHeight;
+        }
+
+        this.ctx = this.canvas.getContext('2d')!;
+        this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        this.width = cssWidth;
+        this.height = cssHeight;
     }
 
     private drawCloud(x: number, y: number, scale: number, alpha: number) {
@@ -771,6 +792,7 @@ export class CanvasRenderer {
     }
 
     public render(petState: PetState, tickCount: number) {
+        this.syncCanvasSize();
         if (this.fsm.isEgg) return;
         if (this.fsm.stats.isDead) {
             this.renderDead(tickCount);

@@ -50,6 +50,7 @@
   }
 
   .phone-shell {
+    width: min(100%, 28rem);
     background:
       linear-gradient(180deg, rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0.36)),
       linear-gradient(180deg, #f8fdff 0%, #fff8ef 100%);
@@ -224,12 +225,19 @@
   }
 
   .stage-card {
+    min-height: clamp(15rem, 40vh, 25rem);
     border: 1px solid rgba(255, 255, 255, 0.84);
     background:
       linear-gradient(180deg, rgba(207, 235, 255, 0.95) 0%, rgba(245, 252, 255, 0.9) 36%, rgba(240, 250, 231, 0.95) 70%, rgba(242, 214, 157, 0.95) 100%);
     box-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.85),
       0 16px 28px rgba(53, 86, 92, 0.12);
+  }
+
+  .stage-canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
   }
 
   .stage-sun {
@@ -437,6 +445,120 @@
     box-shadow: 0 16px 24px rgba(63, 80, 84, 0.09);
     backdrop-filter: blur(20px);
   }
+
+  .main-action-btn {
+    display: flex;
+    min-height: 4.7rem;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    border-radius: 1.3rem;
+    border: 1px solid rgba(203, 213, 225, 0.9);
+    background: rgba(255, 255, 255, 0.96);
+    padding: 0.55rem 0.2rem 0.65rem;
+    color: #334155;
+    box-shadow: 0 10px 18px rgba(53, 65, 78, 0.08);
+    transition: transform 160ms ease;
+  }
+
+  .main-action-btn:active {
+    transform: scale(0.97);
+  }
+
+  .main-action-icon {
+    font-size: 1.4rem;
+    line-height: 1;
+  }
+
+  .main-action-label {
+    margin-top: 0.22rem;
+    font-size: 0.62rem;
+    font-weight: 900;
+    line-height: 1.15;
+    letter-spacing: -0.03em;
+    white-space: nowrap;
+  }
+
+  .submenu-sheet {
+    box-sizing: border-box;
+  }
+
+  .submenu-options,
+  .overlay-scroll {
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
+  }
+
+  .submenu-options::-webkit-scrollbar,
+  .overlay-scroll::-webkit-scrollbar {
+    width: 0.38rem;
+  }
+
+  .submenu-options::-webkit-scrollbar-thumb,
+  .overlay-scroll::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: rgba(148, 163, 184, 0.5);
+  }
+
+  .submenu-card {
+    display: flex;
+    min-height: 8.9rem;
+    flex-direction: column;
+    border-radius: 1.35rem;
+    border: 1px solid rgba(226, 232, 240, 0.95);
+    background: rgba(255, 255, 255, 0.96);
+    padding: 0.95rem;
+    text-align: left;
+    box-shadow: 0 10px 20px rgba(51, 65, 85, 0.07);
+    transition: transform 160ms ease, box-shadow 160ms ease;
+  }
+
+  .submenu-card:active {
+    transform: scale(0.985);
+  }
+
+  .submenu-card-icon {
+    font-size: 2rem;
+    line-height: 1;
+  }
+
+  .submenu-card-badge {
+    border-radius: 999px;
+    padding: 0.25rem 0.55rem;
+    font-size: 0.64rem;
+    font-weight: 900;
+    line-height: 1;
+  }
+
+  .submenu-card-title {
+    font-size: 0.92rem;
+    font-weight: 900;
+    letter-spacing: -0.03em;
+    color: #0f172a;
+  }
+
+  .submenu-card-desc {
+    margin-top: 0.3rem;
+    font-size: 0.7rem;
+    line-height: 1.35;
+    color: #64748b;
+  }
+
+  .submenu-card-hint {
+    max-width: 8.5rem;
+    font-size: 0.7rem;
+    font-weight: 700;
+    line-height: 1.35;
+    color: #94a3b8;
+  }
+
+  .submenu-card-value {
+    font-size: 1.35rem;
+    font-weight: 900;
+    letter-spacing: -0.04em;
+    line-height: 1;
+  }
 }
 
 @layer utilities {
@@ -468,5 +590,130 @@
   .phone-shell {
     min-height: 780px;
     border-radius: 2.2rem;
+  }
+}
+
+@media (max-width: 420px), (max-height: 820px) {
+  .hud-panel {
+    margin: 0.55rem 0.55rem 0;
+    padding: 0.85rem 0.9rem;
+    border-radius: 1.55rem;
+  }
+
+  .hud-kicker {
+    font-size: 0.6rem;
+    letter-spacing: 0.18em;
+  }
+
+  .icon-chip {
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 0.92rem;
+  }
+
+  .currency-card {
+    min-width: 4.85rem;
+    padding: 0.6rem 0.65rem;
+  }
+
+  .currency-row {
+    font-size: 0.72rem;
+  }
+
+  .status-chip {
+    min-height: 1.8rem;
+    padding: 0.42rem 0.68rem;
+    font-size: 0.68rem;
+  }
+
+  .growth-panel {
+    padding: 0.72rem 0.8rem;
+  }
+
+  .state-banner {
+    min-width: min(16rem, 82vw);
+    padding: 0.72rem 0.95rem;
+    font-size: 0.88rem;
+  }
+
+  .guide-fab {
+    gap: 0.35rem;
+    padding: 0.66rem 0.82rem;
+    font-size: 0.72rem;
+  }
+
+  .stage-card {
+    min-height: clamp(14rem, 37vh, 20rem);
+    border-radius: 1.65rem;
+  }
+
+  .stage-sun {
+    top: 0.95rem;
+    right: 0.95rem;
+    width: 3.25rem;
+    height: 3.25rem;
+  }
+
+  .stage-cloud-a {
+    top: 1.4rem;
+    left: 0.9rem;
+    width: 4.4rem;
+  }
+
+  .stage-cloud-b {
+    top: 4rem;
+    left: 3.9rem;
+    width: 3.75rem;
+  }
+
+  .action-dock {
+    margin: 0.4rem 0.55rem 0.55rem;
+    border-radius: 1.55rem;
+  }
+
+  .main-action-btn {
+    min-height: 4.15rem;
+    border-radius: 1.08rem;
+    padding: 0.45rem 0.12rem 0.55rem;
+  }
+
+  .main-action-icon {
+    font-size: 1.26rem;
+  }
+
+  .main-action-label {
+    font-size: 0.58rem;
+  }
+
+  .submenu-sheet {
+    max-height: min(84dvh, 34rem);
+    border-top-left-radius: 1.65rem;
+    border-top-right-radius: 1.65rem;
+    padding-right: 0.95rem;
+    padding-bottom: calc(env(safe-area-inset-bottom) + 1rem);
+    padding-left: 0.95rem;
+  }
+
+  .submenu-options {
+    gap: 0.72rem;
+  }
+
+  .submenu-card {
+    min-height: 0;
+    border-radius: 1.2rem;
+    padding: 0.9rem;
+  }
+
+  .submenu-card-title {
+    font-size: 0.88rem;
+  }
+
+  .submenu-card-desc,
+  .submenu-card-hint {
+    font-size: 0.67rem;
+  }
+
+  .submenu-card-value {
+    font-size: 1.18rem;
   }
 }
