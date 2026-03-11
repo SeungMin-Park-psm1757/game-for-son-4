@@ -1,204 +1,108 @@
-// ============================================================
-// TracePath.ts — 길 따라가기 미니게임
-// id: trace_path | 조작: 드래그 | 15초
-// ============================================================
 import { Minigame, MinigameId, MinigameResult } from './MinigameInterface';
 import { MG_BALANCE } from '../minigameBalance';
 
-interface Vec2 { x: number; y: number; }
-
-interface PathData {
-    start: Vec2;
-    ctrl1: Vec2;
-    ctrl2: Vec2;
-    end: Vec2;
+interface Vec2 {
+    x: number;
+    y: number;
 }
 
 export class TracePath implements Minigame {
     id: MinigameId = 'trace_path';
-    title = '🐾 산책 길찾기';
+    title = '산책 길찾기';
 
     private durationMs = MG_BALANCE.TRACE.DURATION_S * 1000;
     private elapsed = 0;
     private score = 0;
+    private level = 1;
     private done = false;
 
-    private path: PathData | null = null;
-    private tracing = false;       // 손가락이 시작점을 눌렀는지
-    private deviateTimer = 0;      // 이탈 누적 시간(ms)
-    private lastPos: Vec2 | null = null;
-    private progressT = 0;         // 현재 완료된 경로 비율 (0~1)
+    private canvas: HTMLCanvasElement | null = null;
+    private canvasW = 360;
+    private canvasH = 560;
 
-    // Feedback
+    private pathPoints: Vec2[] = [];
+    private tracing = false;
+    private deviateTimer = 0;
+    private lastPos: Vec2 | null = null;
+    private progressIndex = 0;
+
     private feedbackText = '';
     private feedbackTimer = 0;
     private feedbackColor = '#16a34a';
 
-    // Precomputed path points for faster lookup
-    private canvas: HTMLCanvasElement | null = null;
-    private pathPoints: Vec2[] = [];
-    private readonly PATH_SAMPLES = 80;
-
-    // Canvas logical size (set during render, used in pointer)
-    private canvasW = 360;
-    private canvasH = 560;
-
     start(seed: number) {
         this.elapsed = 0;
         this.score = 0;
+        this.level = 1;
         this.done = false;
         this.tracing = false;
         this.deviateTimer = 0;
         this.lastPos = null;
-        this.progressT = 0;
+        this.progressIndex = 0;
         this.generatePath(seed);
     }
 
-    private generatePath(seed: number) {
-        let rng = seed;
-        const rand = (min: number, max: number) => {
-            rng = (rng * 1664525 + 1013904223) >>> 0;
-            return min + (rng / 0x100000000) * (max - min);
-        };
-
-        const w = this.canvasW;
-        const h = this.canvasH;
-
-        // Start near bottom-left, end near top-right (or varied)
-        const startX = rand(w * 0.1, w * 0.25);
-        const startY = rand(h * 0.65, h * 0.8);
-        const endX = rand(w * 0.72, w * 0.9);
-        const endY = rand(h * 0.2, h * 0.38);
-
-        // Two control points for cubic bezier
-        const ctrl1: Vec2 = { x: rand(w * 0.25, w * 0.5), y: rand(h * 0.55, h * 0.75) };
-        const ctrl2: Vec2 = { x: rand(w * 0.5, w * 0.75), y: rand(h * 0.25, h * 0.45) };
-
-        this.path = {
-            start: { x: startX, y: startY },
-            ctrl1,
-            ctrl2,
-            end: { x: endX, y: endY },
-        };
-
-        // Pre-sample path points
-        this.pathPoints = [];
-        for (let i = 0; i <= this.PATH_SAMPLES; i++) {
-            const t = i / this.PATH_SAMPLES;
-            this.pathPoints.push(this.bezier(t));
-        }
-    }
-
-    /** Cubic bezier point at t */
-    private bezier(t: number): Vec2 {
-        if (!this.path) return { x: 0, y: 0 };
-        const { start: p0, ctrl1: p1, ctrl2: p2, end: p3 } = this.path;
-        const mt = 1 - t;
-        return {
-            x: mt * mt * mt * p0.x + 3 * mt * mt * t * p1.x + 3 * mt * t * t * p2.x + t * t * t * p3.x,
-            y: mt * mt * mt * p0.y + 3 * mt * mt * t * p1.y + 3 * mt * t * t * p2.y + t * t * t * p3.y,
-        };
-    }
-
-    /** Find closest point index on precomputed path */
-    private closestOnPath(pos: Vec2): { point: Vec2; t: number; dist: number } {
-        let best = { point: this.pathPoints[0], t: 0, dist: Infinity };
-        for (let i = 0; i < this.pathPoints.length; i++) {
-            const pt = this.pathPoints[i];
-            const dx = pos.x - pt.x;
-            const dy = pos.y - pt.y;
-            const d = Math.sqrt(dx * dx + dy * dy);
-            if (d < best.dist) {
-                best = { point: pt, t: i / this.PATH_SAMPLES, dist: d };
-            }
-        }
-        return best;
-    }
-
     handlePointerDown(e: PointerEvent) {
-        if (this.done || !this.path) return;
+        if (this.done || this.pathPoints.length === 0) return;
+
         const pos = this.eventToLogical(e);
         if (!pos) return;
 
-        if (!this.tracing) {
-            // Must start from the start point
-            const dx = pos.x - this.path.start.x;
-            const dy = pos.y - this.path.start.y;
-            if (Math.sqrt(dx * dx + dy * dy) <= MG_BALANCE.TRACE.START_RADIUS) {
-                this.tracing = true;
-                this.deviateTimer = 0;
-                this.progressT = 0;
-                this.lastPos = pos;
-            }
+        const start = this.pathPoints[0];
+        if (this.distance(pos, start) <= this.getStartRadius()) {
+            this.tracing = true;
+            this.deviateTimer = 0;
+            this.progressIndex = 0;
+            this.lastPos = pos;
         }
     }
 
     handlePointerMove(e: PointerEvent) {
-        if (!this.tracing || this.done || !this.path) return;
+        if (!this.tracing || this.done) return;
         const pos = this.eventToLogical(e);
         if (!pos) return;
         this.lastPos = pos;
     }
 
     handlePointerUp(_e: PointerEvent) {
-        if (this.tracing) {
-            this.tracing = false;
-            this.deviateTimer = 0;
-            this.progressT = 0;
-            this.showFeedback('손가락을 떼면 처음부터 다시!', '#f59e0b');
-        }
-    }
-
-    private eventToLogical(e: PointerEvent): Vec2 | null {
-        if (!this.canvas) return null;
-        const rect = this.canvas.getBoundingClientRect();
-        return {
-            x: (e.clientX - rect.left) * (this.canvasW / rect.width),
-            y: (e.clientY - rect.top) * (this.canvasH / rect.height),
-        };
-    }
-
-    private showFeedback(text: string, color: string) {
-        this.feedbackText = text;
-        this.feedbackColor = color;
-        this.feedbackTimer = 1000;
+        if (!this.tracing) return;
+        this.tracing = false;
+        this.deviateTimer = 0;
+        this.progressIndex = 0;
+        this.showFeedback('처음부터 다시 이어 보자!', '#f59e0b');
     }
 
     update(dtMs: number) {
         if (this.done) return;
+
         this.elapsed += dtMs;
         if (this.feedbackTimer > 0) this.feedbackTimer -= dtMs;
 
-        if (this.tracing && this.lastPos && this.path) {
-            const { dist, t } = this.closestOnPath(this.lastPos);
-            const r = MG_BALANCE.TRACE.ALLOW_R;
-
-            if (dist > r) {
-                // Deviate
+        if (this.tracing && this.lastPos && this.pathPoints.length > 0) {
+            const closest = this.closestOnPath(this.lastPos);
+            if (closest.dist > this.getAllowRadius()) {
                 this.deviateTimer += dtMs;
-                if (this.deviateTimer >= MG_BALANCE.TRACE.DEVIATE_TIMEOUT_S * 1000) {
-                    // Reset to start
+                if (this.deviateTimer >= this.getDeviateTimeoutMs()) {
                     this.tracing = false;
                     this.deviateTimer = 0;
-                    this.progressT = 0;
-                    this.showFeedback('🔄 시작점으로 돌아가세요!', '#f59e0b');
+                    this.progressIndex = 0;
+                    this.showFeedback('길을 벗어났어. 다시 출발!', '#ef4444');
                 }
             } else {
                 this.deviateTimer = 0;
-                // Only advance progress (no going back)
-                if (t > this.progressT) this.progressT = t;
+                this.progressIndex = Math.max(this.progressIndex, closest.index);
 
-                // Check end reached
-                const endDx = this.lastPos.x - this.path.end.x;
-                const endDy = this.lastPos.y - this.path.end.y;
-                const endDist = Math.sqrt(endDx * endDx + endDy * endDy);
-                if (endDist <= MG_BALANCE.TRACE.END_RADIUS && this.progressT > 0.7) {
+                const end = this.pathPoints[this.pathPoints.length - 1];
+                const reachedEnd = this.distance(this.lastPos, end) <= this.getEndRadius();
+                const enoughProgress = this.progressIndex >= Math.floor(this.pathPoints.length * 0.82);
+
+                if (reachedEnd && enoughProgress) {
                     this.score++;
-                    this.showFeedback('🎉 도착!', '#16a34a');
+                    this.level = this.score + 1;
                     this.tracing = false;
-                    this.progressT = 0;
-                    // Generate new path
-                    this.generatePath(Date.now() + this.score);
+                    this.progressIndex = 0;
+                    this.showFeedback(`성공! 다음은 Lv.${this.level}`, '#16a34a');
+                    this.generatePath(Date.now() + this.score * 17);
                 }
             }
         }
@@ -215,140 +119,254 @@ export class TracePath implements Minigame {
 
         const remaining = Math.max(0, Math.ceil((this.durationMs - this.elapsed) / 1000));
 
-        // Background
-        ctx.fillStyle = '#ecfdf5';
+        ctx.fillStyle = '#f0fdf4';
         ctx.fillRect(0, 0, w, h);
 
-        // Timer
-        ctx.fillStyle = remaining <= 5 ? '#dc2626' : '#1e293b';
+        ctx.fillStyle = '#dcfce7';
+        ctx.fillRect(0, h * 0.12, w, h * 0.68);
+
+        ctx.fillStyle = '#86efac';
+        ctx.beginPath();
+        ctx.moveTo(0, h * 0.78);
+        ctx.quadraticCurveTo(w * 0.25, h * 0.72, w * 0.5, h * 0.8);
+        ctx.quadraticCurveTo(w * 0.75, h * 0.88, w, h * 0.75);
+        ctx.lineTo(w, h);
+        ctx.lineTo(0, h);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.fillStyle = remaining <= 5 ? '#dc2626' : '#1f2937';
         ctx.font = `bold ${Math.round(h * 0.075)}px sans-serif`;
         ctx.textAlign = 'center';
-        ctx.textBaseline = 'alphabetic';
-        ctx.fillText(`⏱ ${remaining}초`, w / 2, h * 0.09);
+        ctx.fillText(`${remaining}`, w / 2, h * 0.09);
 
-        // Score
-        ctx.font = `bold ${Math.round(h * 0.05)}px sans-serif`;
-        ctx.fillStyle = '#475569';
-        ctx.fillText(`성공: ${this.score}회`, w / 2, h * 0.16);
+        ctx.font = `bold ${Math.round(h * 0.045)}px sans-serif`;
+        ctx.fillStyle = '#0f766e';
+        ctx.fillText(`성공 ${this.score}회`, w * 0.24, h * 0.16);
+        ctx.fillStyle = '#2563eb';
+        ctx.fillText(`Lv.${this.level}`, w * 0.76, h * 0.16);
 
-        if (!this.path || this.pathPoints.length === 0) return;
+        if (this.pathPoints.length > 1) {
+            const roadWidth = this.getRoadWidth();
 
-        // Draw path (thick line = road)
-        ctx.save();
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
+            ctx.save();
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
 
-        // Road background
-        ctx.strokeStyle = '#d1fae5';
-        ctx.lineWidth = MG_BALANCE.TRACE.PATH_LINE_WIDTH;
-        ctx.beginPath();
-        ctx.moveTo(this.pathPoints[0].x, this.pathPoints[0].y);
-        for (let i = 1; i < this.pathPoints.length; i++) {
-            ctx.lineTo(this.pathPoints[i].x, this.pathPoints[i].y);
-        }
-        ctx.stroke();
-
-        // Road center line (dashed)
-        ctx.strokeStyle = '#86efac';
-        ctx.lineWidth = 3;
-        ctx.setLineDash([12, 10]);
-        ctx.beginPath();
-        ctx.moveTo(this.pathPoints[0].x, this.pathPoints[0].y);
-        for (let i = 1; i < this.pathPoints.length; i++) {
-            ctx.lineTo(this.pathPoints[i].x, this.pathPoints[i].y);
-        }
-        ctx.stroke();
-        ctx.setLineDash([]);
-
-        // Progress trail
-        if (this.progressT > 0) {
-            ctx.strokeStyle = '#10b981';
-            ctx.lineWidth = 10;
+            ctx.strokeStyle = '#d9f99d';
+            ctx.lineWidth = roadWidth;
             ctx.beginPath();
-            const maxI = Math.floor(this.progressT * this.PATH_SAMPLES);
             ctx.moveTo(this.pathPoints[0].x, this.pathPoints[0].y);
-            for (let i = 1; i <= maxI; i++) {
+            for (let i = 1; i < this.pathPoints.length; i++) {
                 ctx.lineTo(this.pathPoints[i].x, this.pathPoints[i].y);
             }
             ctx.stroke();
+
+            ctx.strokeStyle = '#65a30d';
+            ctx.lineWidth = Math.max(3, roadWidth * 0.22);
+            ctx.setLineDash([10, 8]);
+            ctx.beginPath();
+            ctx.moveTo(this.pathPoints[0].x, this.pathPoints[0].y);
+            for (let i = 1; i < this.pathPoints.length; i++) {
+                ctx.lineTo(this.pathPoints[i].x, this.pathPoints[i].y);
+            }
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            if (this.progressIndex > 0) {
+                ctx.strokeStyle = '#14b8a6';
+                ctx.lineWidth = Math.max(6, roadWidth * 0.34);
+                ctx.beginPath();
+                ctx.moveTo(this.pathPoints[0].x, this.pathPoints[0].y);
+                for (let i = 1; i <= this.progressIndex; i++) {
+                    ctx.lineTo(this.pathPoints[i].x, this.pathPoints[i].y);
+                }
+                ctx.stroke();
+            }
+
+            ctx.restore();
         }
 
-        ctx.restore();
+        const start = this.pathPoints[0];
+        const end = this.pathPoints[this.pathPoints.length - 1];
 
-        // Start marker
-        const sp = this.path.start;
-        ctx.beginPath();
-        ctx.arc(sp.x, sp.y, MG_BALANCE.TRACE.START_RADIUS, 0, Math.PI * 2);
-        ctx.fillStyle = this.tracing ? '#10b981' : '#34d399';
-        ctx.fill();
-        ctx.strokeStyle = '#fff';
-        ctx.lineWidth = 3;
-        ctx.stroke();
-        ctx.fillStyle = '#fff';
-        ctx.font = `bold ${Math.round(MG_BALANCE.TRACE.START_RADIUS * 0.9)}px sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('S', sp.x, sp.y);
+        if (start) {
+            ctx.beginPath();
+            ctx.arc(start.x, start.y, this.getStartRadius(), 0, Math.PI * 2);
+            ctx.fillStyle = this.tracing ? '#0ea5e9' : '#38bdf8';
+            ctx.fill();
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 3;
+            ctx.stroke();
+            ctx.fillStyle = '#ffffff';
+            ctx.font = `bold ${Math.round(this.getStartRadius() * 0.85)}px sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('S', start.x, start.y);
+        }
 
-        // End marker
-        const ep = this.path.end;
-        ctx.beginPath();
-        ctx.arc(ep.x, ep.y, MG_BALANCE.TRACE.END_RADIUS, 0, Math.PI * 2);
-        ctx.fillStyle = '#f59e0b';
-        ctx.fill();
-        ctx.strokeStyle = '#fff';
-        ctx.lineWidth = 3;
-        ctx.stroke();
-        ctx.fillStyle = '#fff';
-        ctx.font = `bold ${Math.round(MG_BALANCE.TRACE.END_RADIUS * 0.9)}px sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('🏁', ep.x, ep.y);
+        if (end) {
+            ctx.beginPath();
+            ctx.arc(end.x, end.y, this.getEndRadius(), 0, Math.PI * 2);
+            ctx.fillStyle = '#f97316';
+            ctx.fill();
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 3;
+            ctx.stroke();
+            ctx.fillStyle = '#ffffff';
+            ctx.font = `bold ${Math.round(this.getEndRadius() * 0.52)}px sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('GOAL', end.x, end.y);
+        }
 
-        // Current finger position indicator
         if (this.tracing && this.lastPos) {
             ctx.beginPath();
-            ctx.arc(this.lastPos.x, this.lastPos.y, 14, 0, Math.PI * 2);
-            ctx.fillStyle = 'rgba(16, 185, 129, 0.4)';
+            ctx.arc(this.lastPos.x, this.lastPos.y, 12, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(20, 184, 166, 0.25)';
             ctx.fill();
-            ctx.strokeStyle = '#10b981';
+            ctx.strokeStyle = '#14b8a6';
             ctx.lineWidth = 2;
             ctx.stroke();
         }
 
-        // Deviate warning bar
         if (this.deviateTimer > 0) {
-            const ratio = this.deviateTimer / (MG_BALANCE.TRACE.DEVIATE_TIMEOUT_S * 1000);
-            ctx.fillStyle = `rgba(239, 68, 68, ${0.3 + ratio * 0.5})`;
-            ctx.fillRect(0, h * 0.88, w * ratio, 6);
+            const ratio = this.deviateTimer / this.getDeviateTimeoutMs();
+            ctx.fillStyle = `rgba(239, 68, 68, ${0.25 + ratio * 0.45})`;
+            ctx.fillRect(0, h * 0.88, w * Math.min(1, ratio), 7);
         }
 
-        // Feedback
         if (this.feedbackTimer > 0) {
             ctx.globalAlpha = Math.min(1, this.feedbackTimer / 400);
-            ctx.font = `bold ${Math.round(h * 0.065)}px sans-serif`;
+            ctx.font = `bold ${Math.round(h * 0.06)}px sans-serif`;
             ctx.fillStyle = this.feedbackColor;
             ctx.textAlign = 'center';
-            ctx.textBaseline = 'alphabetic';
-            ctx.fillText(this.feedbackText, w / 2, h * 0.22);
+            ctx.fillText(this.feedbackText, w / 2, h * 0.24);
             ctx.globalAlpha = 1;
         }
 
-        // Instructions
-        if (!this.tracing) {
-            ctx.font = `${Math.round(h * 0.04)}px sans-serif`;
-            ctx.fillStyle = '#6b7280';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'alphabetic';
-            ctx.fillText('S에서 시작해 길 위로 🏁까지 드래그하세요', w / 2, h * 0.95);
-        }
+        ctx.font = `${Math.round(h * 0.038)}px sans-serif`;
+        ctx.fillStyle = '#475569';
+        ctx.textAlign = 'center';
+        ctx.fillText('S에서 시작해 길을 따라 GOAL까지 이어 주세요.', w / 2, h * 0.95);
     }
 
-    isDone() { return this.done; }
+    isDone() {
+        return this.done;
+    }
 
     getResult(): MinigameResult {
-        const goldEarned = this.score * MG_BALANCE.TRACE.GOLD_PER_SUCCESS;
-        const amberEarned = Math.floor(this.score / MG_BALANCE.TRACE.AMBER_DIVISOR);
-        return { score: this.score, goldEarned, amberEarned };
+        return {
+            score: this.score,
+            goldEarned: this.score * MG_BALANCE.TRACE.GOLD_PER_SUCCESS,
+            amberEarned: Math.floor(this.score / MG_BALANCE.TRACE.AMBER_DIVISOR),
+        };
+    }
+
+    private generatePath(seed: number) {
+        let rng = seed >>> 0;
+        const rand = (min: number, max: number) => {
+            rng = (rng * 1664525 + 1013904223) >>> 0;
+            return min + (rng / 0x100000000) * (max - min);
+        };
+
+        const turnCount = Math.min(8, 4 + Math.floor((this.level - 1) / 2));
+        const anchors: Vec2[] = [];
+        anchors.push({
+            x: rand(this.canvasW * 0.15, this.canvasW * 0.28),
+            y: rand(this.canvasH * 0.72, this.canvasH * 0.82),
+        });
+
+        for (let i = 1; i <= turnCount; i++) {
+            const progress = i / (turnCount + 1);
+            const laneBias = i % 2 === 0 ? 0.26 : 0.74;
+            const wiggle = Math.min(0.28, 0.08 + this.level * 0.018);
+            anchors.push({
+                x: rand(
+                    this.canvasW * Math.max(0.1, laneBias - wiggle),
+                    this.canvasW * Math.min(0.9, laneBias + wiggle),
+                ),
+                y: this.canvasH * (0.82 - progress * 0.58) + rand(-this.canvasH * 0.035, this.canvasH * 0.035),
+            });
+        }
+
+        anchors.push({
+            x: rand(this.canvasW * 0.72, this.canvasW * 0.88),
+            y: rand(this.canvasH * 0.16, this.canvasH * 0.28),
+        });
+
+        this.pathPoints = [];
+        const samplesPerSegment = 12;
+        for (let i = 0; i < anchors.length - 1; i++) {
+            const start = anchors[i];
+            const end = anchors[i + 1];
+            for (let step = 0; step < samplesPerSegment; step++) {
+                const t = step / samplesPerSegment;
+                this.pathPoints.push({
+                    x: start.x + (end.x - start.x) * t,
+                    y: start.y + (end.y - start.y) * t,
+                });
+            }
+        }
+        this.pathPoints.push(anchors[anchors.length - 1]);
+    }
+
+    private closestOnPath(pos: Vec2) {
+        let bestIndex = 0;
+        let bestDist = Infinity;
+
+        for (let i = 0; i < this.pathPoints.length; i++) {
+            const dist = this.distance(pos, this.pathPoints[i]);
+            if (dist < bestDist) {
+                bestDist = dist;
+                bestIndex = i;
+            }
+        }
+
+        return {
+            index: bestIndex,
+            dist: bestDist,
+        };
+    }
+
+    private eventToLogical(e: PointerEvent): Vec2 | null {
+        if (!this.canvas) return null;
+        const rect = this.canvas.getBoundingClientRect();
+        return {
+            x: (e.clientX - rect.left) * (this.canvasW / rect.width),
+            y: (e.clientY - rect.top) * (this.canvasH / rect.height),
+        };
+    }
+
+    private distance(a: Vec2, b: Vec2) {
+        const dx = a.x - b.x;
+        const dy = a.y - b.y;
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    private showFeedback(text: string, color: string) {
+        this.feedbackText = text;
+        this.feedbackColor = color;
+        this.feedbackTimer = 1000;
+    }
+
+    private getAllowRadius() {
+        return Math.max(10, MG_BALANCE.TRACE.ALLOW_R - (this.level - 1) * 2.6);
+    }
+
+    private getStartRadius() {
+        return Math.max(12, MG_BALANCE.TRACE.START_RADIUS - (this.level - 1) * 0.6);
+    }
+
+    private getEndRadius() {
+        return Math.max(12, MG_BALANCE.TRACE.END_RADIUS - (this.level - 1) * 0.6);
+    }
+
+    private getRoadWidth() {
+        return Math.max(20, MG_BALANCE.TRACE.PATH_LINE_WIDTH - (this.level - 1) * 4.2);
+    }
+
+    private getDeviateTimeoutMs() {
+        return Math.max(240, MG_BALANCE.TRACE.DEVIATE_TIMEOUT_S * 1000 - (this.level - 1) * 85);
     }
 }

@@ -1,26 +1,27 @@
-// ============================================================
-// SortBaskets.ts — 바구니 정리 미니게임
-// id: sort_baskets | 조작: 좌/우 스와이프 or 탭 | 20초
-// ============================================================
 import { Minigame, MinigameId, MinigameResult } from './MinigameInterface';
 import { MG_BALANCE } from '../minigameBalance';
 
-interface Item {
-    emoji: string;
+interface FallingItem {
+    id: number;
+    icon: string;
     label: string;
-    correctSide: 'left' | 'right'; // leaf → left, stone → right
+    x: number;
+    y: number;
+    speed: number;
+    size: number;
+    spin: number;
 }
 
-const ITEMS: Item[] = [
-    { emoji: '🍃', label: '잎', correctSide: 'left' },
-    { emoji: '🪨', label: '돌', correctSide: 'right' },
-];
-
-type Phase = 'waiting' | 'sliding' | 'done';
+const ITEM_POOL = [
+    { icon: '🍎', label: '사과 상자' },
+    { icon: '🥕', label: '당근 바구니' },
+    { icon: '🍐', label: '배 꾸러미' },
+    { icon: '🥬', label: '잎채소 묶음' },
+] as const;
 
 export class SortBaskets implements Minigame {
     id: MinigameId = 'sort_baskets';
-    title = '🧺 바구니 정리';
+    title = '바구니 받기';
 
     private durationMs = MG_BALANCE.SORT.DURATION_S * 1000;
     private elapsed = 0;
@@ -28,24 +29,22 @@ export class SortBaskets implements Minigame {
     private mistakes = 0;
     private combo = 0;
     private comboBonus = 0;
+    private done = false;
 
-    private currentItem: Item = ITEMS[0];
-    private phase: Phase = 'waiting';
-    private slideX = 0;       // 0 = center, negative = left, positive = right
-    private slideTarget = 0;
-    private changeDelay = 0;
+    private canvas: HTMLCanvasElement | null = null;
+    private canvasW = 360;
+    private canvasH = 560;
 
-    // Swipe tracking
-    private pointerStartX = 0;
-    private pointerDown = false;
+    private catcherX = 180;
+    private targetX = 180;
+    private spawnTimer = 0;
+    private nextSpawnMs = 700;
+    private itemSerial = 0;
+    private items: FallingItem[] = [];
 
-    // Feedback
     private feedbackText = '';
     private feedbackTimer = 0;
     private feedbackColor = '#16a34a';
-
-    // Done
-    private done = false;
 
     start(_seed: number) {
         this.elapsed = 0;
@@ -54,106 +53,81 @@ export class SortBaskets implements Minigame {
         this.combo = 0;
         this.comboBonus = 0;
         this.done = false;
-        this.phase = 'waiting';
-        this.slideX = 0;
+        this.spawnTimer = 0;
+        this.nextSpawnMs = 700;
+        this.itemSerial = 0;
+        this.items = [];
         this.feedbackText = '';
-        this.changeDelay = 0;
-        this.pickNextItem();
+        this.feedbackTimer = 0;
+        this.catcherX = this.canvasW / 2;
+        this.targetX = this.catcherX;
     }
 
-    private pickNextItem() {
-        this.currentItem = ITEMS[Math.floor(Math.random() * ITEMS.length)];
-        this.slideX = 0;
-        this.phase = 'waiting';
-    }
-
-    private judge(side: 'left' | 'right') {
-        if (this.phase !== 'waiting') return;
-        this.phase = 'sliding';
-        this.slideTarget = side === 'left' ? -1 : 1;
-
-        if (side === this.currentItem.correctSide) {
-            this.score++;
-            this.combo++;
-            const bonusTrigger = MG_BALANCE.SORT.COMBO_BONUS_EVERY;
-            if (this.combo > 0 && this.combo % bonusTrigger === 0) {
-                this.comboBonus += MG_BALANCE.SORT.COMBO_BONUS_GOLD;
-                this.showFeedback(`🔥 ${this.combo}연속! +${MG_BALANCE.SORT.COMBO_BONUS_GOLD}G`, '#d97706');
-            } else {
-                this.showFeedback('✅ 정답!', '#16a34a');
-            }
-        } else {
-            this.mistakes++;
-            this.combo = 0;
-            this.showFeedback('❌ 오답', '#dc2626');
-        }
-
-        this.changeDelay = MG_BALANCE.SORT.ITEM_CHANGE_DELAY_MS;
-    }
-
-    private showFeedback(text: string, color: string) {
-        this.feedbackText = text;
-        this.feedbackColor = color;
-        this.feedbackTimer = 900;
+    setCanvas(canvas: HTMLCanvasElement) {
+        this.canvas = canvas;
     }
 
     handlePointerDown(e: PointerEvent) {
-        if (this.done || this.phase !== 'waiting') return;
-        this.pointerStartX = e.clientX;
-        this.pointerDown = true;
+        this.updateTargetX(e);
     }
 
-    handlePointerMove(_e: PointerEvent) { }
+    handlePointerMove(e: PointerEvent) {
+        this.updateTargetX(e);
+    }
 
     handlePointerUp(e: PointerEvent) {
-        if (!this.pointerDown || this.done || this.phase !== 'waiting') return;
-        this.pointerDown = false;
-
-        const dx = e.clientX - this.pointerStartX;
-        const threshold = MG_BALANCE.SORT.SWIPE_THRESHOLD_PX;
-
-        if (Math.abs(dx) >= threshold) {
-            // Swipe
-            this.judge(dx < 0 ? 'left' : 'right');
-        } else {
-            // Tap: left half = left basket, right half = right basket
-            if (this.canvas) {
-                const rect = this.canvas.getBoundingClientRect();
-                const tapX = e.clientX - rect.left;
-                this.judge(tapX < rect.width / 2 ? 'left' : 'right');
-            }
-        }
+        this.updateTargetX(e);
     }
-
-    // Canvas ref for tap zone detection
-    private canvas: HTMLCanvasElement | null = null;
-    setCanvas(c: HTMLCanvasElement) { this.canvas = c; }
 
     update(dtMs: number) {
         if (this.done) return;
+
         this.elapsed += dtMs;
+        this.spawnTimer += dtMs;
         if (this.feedbackTimer > 0) this.feedbackTimer -= dtMs;
 
-        if (this.phase === 'sliding') {
-            // Animate slide
-            const speed = 0.012 * dtMs; // fraction per ms
-            if (this.slideTarget < 0) {
-                this.slideX = Math.max(this.slideTarget, this.slideX - speed);
-            } else {
-                this.slideX = Math.min(this.slideTarget, this.slideX + speed);
-            }
-
-            if (Math.abs(this.slideX - this.slideTarget) < 0.01) {
-                this.phase = 'done';
-            }
+        const moveSpeed = MG_BALANCE.SORT.CATCHER_SPEED_PX_PER_S * (dtMs / 1000);
+        if (Math.abs(this.targetX - this.catcherX) <= moveSpeed) {
+            this.catcherX = this.targetX;
+        } else if (this.targetX > this.catcherX) {
+            this.catcherX += moveSpeed;
+        } else {
+            this.catcherX -= moveSpeed;
         }
 
-        if (this.phase === 'done') {
-            this.changeDelay -= dtMs;
-            if (this.changeDelay <= 0) {
-                this.pickNextItem();
-            }
+        if (this.spawnTimer >= this.nextSpawnMs) {
+            this.spawnTimer = 0;
+            this.spawnItem();
+            this.nextSpawnMs = this.randomBetween(
+                MG_BALANCE.SORT.SPAWN_INTERVAL_MIN_MS,
+                MG_BALANCE.SORT.SPAWN_INTERVAL_MAX_MS,
+            );
         }
+
+        const catchY = this.canvasH * 0.78;
+        const catchHalfWidth = MG_BALANCE.SORT.CATCH_WIDTH_PX / 2;
+
+        this.items = this.items.filter((item) => {
+            item.y += item.speed * (dtMs / 1000);
+            item.spin += 0.05;
+
+            const isCaught =
+                item.y >= catchY - item.size * 0.35 &&
+                item.y <= catchY + item.size * 0.4 &&
+                Math.abs(item.x - this.catcherX) <= catchHalfWidth;
+
+            if (isCaught) {
+                this.onCatch();
+                return false;
+            }
+
+            if (item.y > this.canvasH + item.size) {
+                this.onMiss();
+                return false;
+            }
+
+            return true;
+        });
 
         if (this.elapsed >= this.durationMs) {
             this.done = true;
@@ -162,88 +136,184 @@ export class SortBaskets implements Minigame {
 
     render(ctx: CanvasRenderingContext2D, w: number, h: number) {
         if (!this.canvas) this.canvas = ctx.canvas;
-        const remaining = Math.max(0, Math.ceil((this.durationMs - this.elapsed) / 1000));
+        this.canvasW = w;
+        this.canvasH = h;
 
-        // Background
-        ctx.fillStyle = '#fef3c7';
+        const remaining = Math.max(0, Math.ceil((this.durationMs - this.elapsed) / 1000));
+        const catchY = h * 0.78;
+        const basketWidth = MG_BALANCE.SORT.CATCH_WIDTH_PX;
+
+        ctx.fillStyle = '#f6fbff';
         ctx.fillRect(0, 0, w, h);
 
-        // Timer
-        ctx.fillStyle = remaining <= 5 ? '#dc2626' : '#1e293b';
-        ctx.font = `bold ${Math.round(h * 0.09)}px sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.fillText(`⏱ ${remaining}초`, w / 2, h * 0.1);
+        ctx.fillStyle = '#d8f0ff';
+        ctx.fillRect(0, h * 0.12, w, h * 0.58);
 
-        // Score / mistakes
-        ctx.font = `bold ${Math.round(h * 0.055)}px sans-serif`;
+        ctx.fillStyle = '#9fd48f';
+        ctx.beginPath();
+        ctx.moveTo(0, h * 0.72);
+        ctx.quadraticCurveTo(w * 0.2, h * 0.66, w * 0.45, h * 0.71);
+        ctx.quadraticCurveTo(w * 0.72, h * 0.76, w, h * 0.68);
+        ctx.lineTo(w, h);
+        ctx.lineTo(0, h);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.fillStyle = remaining <= 5 ? '#dc2626' : '#1f2937';
+        ctx.font = `bold ${Math.round(h * 0.08)}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.fillText(`${remaining}`, w / 2, h * 0.09);
+
+        ctx.font = `bold ${Math.round(h * 0.045)}px sans-serif`;
         ctx.fillStyle = '#475569';
-        ctx.fillText(`점수: ${this.score}  실수: ${this.mistakes}/${MG_BALANCE.SORT.MAX_MISTAKES}`, w / 2, h * 0.18);
+        ctx.fillText(`받은 꾸러미 ${this.score}개`, w / 2, h * 0.16);
 
-        // Left basket label
-        ctx.font = `${Math.round(h * 0.14)}px sans-serif`;
-        ctx.textAlign = 'left';
-        ctx.fillText('🧺', w * 0.04, h * 0.72);
-        ctx.font = `bold ${Math.round(h * 0.045)}px sans-serif`;
-        ctx.fillStyle = '#15803d';
-        ctx.fillText('잎', w * 0.09, h * 0.78);
+        ctx.font = `bold ${Math.round(h * 0.04)}px sans-serif`;
+        ctx.fillStyle = '#f59e0b';
+        ctx.fillText(`콤보 ${this.combo}`, w * 0.22, h * 0.22);
+        ctx.fillStyle = '#ef4444';
+        ctx.fillText(`놓침 ${this.mistakes}`, w * 0.78, h * 0.22);
 
-        // Right basket label
-        ctx.font = `${Math.round(h * 0.14)}px sans-serif`;
-        ctx.textAlign = 'right';
-        ctx.fillText('🧺', w * 0.96, h * 0.72);
-        ctx.font = `bold ${Math.round(h * 0.045)}px sans-serif`;
-        ctx.fillStyle = '#b45309';
-        ctx.fillText('돌', w * 0.92, h * 0.78);
+        ctx.save();
+        ctx.translate(this.catcherX, catchY);
 
-        // Center item (with slide offset)
-        const centerX = w / 2 + this.slideX * w * 0.4;
-        ctx.font = `${Math.round(h * 0.22)}px sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.fillText(this.currentItem.emoji, centerX, h * 0.56);
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.12)';
+        ctx.beginPath();
+        ctx.ellipse(0, 34, 56, 10, 0, 0, Math.PI * 2);
+        ctx.fill();
 
-        // Item label
-        ctx.font = `bold ${Math.round(h * 0.05)}px sans-serif`;
-        ctx.fillStyle = '#374151';
-        ctx.fillText(this.currentItem.label, centerX, h * 0.65);
+        ctx.fillStyle = '#6dd5a2';
+        ctx.beginPath();
+        ctx.ellipse(-8, -4, 34, 26, 0, 0, Math.PI * 2);
+        ctx.fill();
 
-        // Left / Right indicator arrows
-        ctx.fillStyle = '#94a3b8';
-        ctx.font = `${Math.round(h * 0.06)}px sans-serif`;
-        ctx.textAlign = 'left';
-        ctx.fillText('◀', w * 0.03, h * 0.48);
-        ctx.textAlign = 'right';
-        ctx.fillText('▶', w * 0.97, h * 0.48);
+        ctx.fillStyle = '#78e2b2';
+        ctx.beginPath();
+        ctx.ellipse(22, -28, 18, 16, 0, 0, Math.PI * 2);
+        ctx.fill();
 
-        // Feedback
+        ctx.fillStyle = '#1f2937';
+        ctx.beginPath();
+        ctx.arc(28, -31, 2.6, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#d8a15d';
+        ctx.beginPath();
+        (ctx as any).roundRect(-basketWidth / 2, 4, basketWidth, 28, 14);
+        ctx.fill();
+        ctx.strokeStyle = '#a56b36';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+
+        ctx.strokeStyle = '#a56b36';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(-basketWidth / 2 + 14, 4);
+        ctx.quadraticCurveTo(0, -12, basketWidth / 2 - 14, 4);
+        ctx.stroke();
+
+        ctx.restore();
+
+        for (const item of this.items) {
+            ctx.save();
+            ctx.translate(item.x, item.y);
+            ctx.rotate(Math.sin(item.spin) * 0.12);
+
+            ctx.fillStyle = 'rgba(255,255,255,0.9)';
+            ctx.beginPath();
+            ctx.arc(0, 0, item.size * 0.52, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.font = `${Math.round(item.size)}px sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(item.icon, 0, 0);
+            ctx.restore();
+        }
+
         if (this.feedbackTimer > 0) {
             ctx.globalAlpha = Math.min(1, this.feedbackTimer / 400);
-            ctx.font = `bold ${Math.round(h * 0.065)}px sans-serif`;
+            ctx.font = `bold ${Math.round(h * 0.06)}px sans-serif`;
             ctx.fillStyle = this.feedbackColor;
             ctx.textAlign = 'center';
             ctx.fillText(this.feedbackText, w / 2, h * 0.3);
             ctx.globalAlpha = 1;
         }
 
-        // Combo indicator
-        if (this.combo >= 3) {
-            ctx.font = `bold ${Math.round(h * 0.05)}px sans-serif`;
-            ctx.fillStyle = '#f59e0b';
-            ctx.textAlign = 'center';
-            ctx.fillText(`🔥 ${this.combo}연속`, w / 2, h * 0.88);
-        }
-
-        // Instructions at bottom
         ctx.font = `${Math.round(h * 0.038)}px sans-serif`;
-        ctx.fillStyle = '#94a3b8';
-        ctx.textAlign = 'center';
-        ctx.fillText('스와이프 또는 좌/우 탭으로 분류하세요', w / 2, h * 0.95);
+        ctx.fillStyle = '#64748b';
+        ctx.fillText('좌우로 움직여서 떨어지는 꾸러미를 받아 주세요.', w / 2, h * 0.94);
     }
 
-    isDone() { return this.done; }
+    isDone() {
+        return this.done;
+    }
 
     getResult(): MinigameResult {
         const goldEarned = this.score * MG_BALANCE.SORT.GOLD_PER_POINT + this.comboBonus;
         const amberEarned = Math.floor(this.score / MG_BALANCE.SORT.AMBER_DIVISOR);
-        return { score: this.score, goldEarned, amberEarned, details: { mistakes: this.mistakes, combo: this.combo } };
+        return {
+            score: this.score,
+            goldEarned,
+            amberEarned,
+            details: { mistakes: this.mistakes, combo: this.combo },
+        };
+    }
+
+    private updateTargetX(e: PointerEvent) {
+        if (this.done || !this.canvas) return;
+        const rect = this.canvas.getBoundingClientRect();
+        const localX = (e.clientX - rect.left) * (this.canvasW / rect.width);
+        const margin = MG_BALANCE.SORT.CATCH_WIDTH_PX * 0.55;
+        this.targetX = Math.max(margin, Math.min(this.canvasW - margin, localX));
+    }
+
+    private spawnItem() {
+        const pick = ITEM_POOL[Math.floor(Math.random() * ITEM_POOL.length)];
+        const safeMargin = 36;
+        const difficultyBoost = Math.min(90, this.score * 4);
+
+        this.items.push({
+            id: this.itemSerial++,
+            icon: pick.icon,
+            label: pick.label,
+            x: this.randomBetween(safeMargin, this.canvasW - safeMargin),
+            y: -20,
+            speed: this.randomBetween(
+                MG_BALANCE.SORT.FALL_SPEED_MIN_PX_PER_S + difficultyBoost,
+                MG_BALANCE.SORT.FALL_SPEED_MAX_PX_PER_S + difficultyBoost,
+            ),
+            size: this.randomBetween(28, 36),
+            spin: Math.random() * Math.PI,
+        });
+    }
+
+    private onCatch() {
+        this.score++;
+        this.combo++;
+
+        if (this.combo > 0 && this.combo % MG_BALANCE.SORT.COMBO_BONUS_EVERY === 0) {
+            this.comboBonus += MG_BALANCE.SORT.COMBO_BONUS_GOLD;
+            this.showFeedback(`콤보 보너스 +${MG_BALANCE.SORT.COMBO_BONUS_GOLD}G`, '#d97706');
+            return;
+        }
+
+        this.showFeedback('착!', '#16a34a');
+    }
+
+    private onMiss() {
+        this.mistakes++;
+        this.combo = 0;
+        this.showFeedback('앗, 놓쳤어!', '#ef4444');
+    }
+
+    private showFeedback(text: string, color: string) {
+        this.feedbackText = text;
+        this.feedbackColor = color;
+        this.feedbackTimer = 900;
+    }
+
+    private randomBetween(min: number, max: number) {
+        return min + Math.random() * (max - min);
     }
 }

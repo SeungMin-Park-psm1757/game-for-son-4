@@ -7,6 +7,7 @@ import { getPastureResult } from './events/pasture';
 import { AUDIO } from './audio';
 import { HOOKS } from './events/hooks';
 import { DialogueManager } from './dialogue/DialogueManager';
+import { getPetTapPattern } from './dialogue/petTapDialogues';
 import { DialogueContext, DialogueResult } from './dialogue/types';
 import { MinigameRunner } from './minigames/MinigameRunner';
 import { SortBaskets } from './minigames/SortBaskets';
@@ -15,6 +16,7 @@ import { TracePath } from './minigames/TracePath';
 import type { MinigameId } from './minigames/MinigameInterface';
 import { MG_BALANCE } from './minigameBalance';
 import { MathQuizEngine, MathQuestion, MATH_QUIZ_GOLD, MATH_QUIZ_AMBER_BONUS } from './MathQuiz';
+import { getActiveSecondsForAge } from './growth';
 
 export type UIOverlayState = 'NONE' | 'SUBMENU' | 'SHOP' | 'QUIZ' | 'ARBEIT' | 'ENCYCLOPEDIA' | 'MINIGAME' | 'CANVAS_MG' | 'INTRO' | 'DEATH';
 
@@ -25,6 +27,7 @@ export class UIManager {
     private amberElement: HTMLElement;
     private goldElement: HTMLElement;
     private medicineElement: HTMLElement;
+    private animationSkipButton: HTMLButtonElement | null;
 
     private quizOverlay: HTMLElement;
     public shopSystem: ShopSystem;
@@ -66,6 +69,9 @@ export class UIManager {
     private lastFsmState: string = 'Idle';
     private lastUiTime: number;
     private lastStateTextUpdate: number = 0;
+    private petTapPatternKey = '';
+    private petTapLines: string[] = [];
+    private petTapIndex = 0;
 
     constructor(private fsm: FSM) {
         this.barsElement = document.getElementById('status-bars')!;
@@ -74,6 +80,7 @@ export class UIManager {
         this.amberElement = document.getElementById('stat-amber')!;
         this.goldElement = document.getElementById('stat-gold')!;
         this.medicineElement = document.getElementById('stat-medicine')!;
+        this.animationSkipButton = document.getElementById('btn-skip-animation') as HTMLButtonElement | null;
 
         this.quizOverlay = document.getElementById('quiz-overlay')!;
         this.shopSystem = new ShopSystem(this.fsm);
@@ -97,6 +104,7 @@ export class UIManager {
         this.initNotifications();
         this.initHUDButtons();
         this.initIntroEvents();
+        this.initAnimationSkip();
 
         const encOverlay = document.getElementById('encyclopedia-overlay');
         if (encOverlay) {
@@ -214,6 +222,53 @@ export class UIManager {
         });
     }
 
+    private initAnimationSkip() {
+        const skipAnimation = () => {
+            if (!this.fsm.activeAnimation) return;
+            this.fsm.skipActiveAnimation();
+            this.update();
+        };
+
+        this.animationSkipButton?.addEventListener('click', (event) => {
+            event.stopPropagation();
+            skipAnimation();
+        });
+
+        document.getElementById('pet-canvas')?.addEventListener('click', (event) => {
+            if (this.currentOverlay !== 'NONE') return;
+            AUDIO.init();
+            if (this.fsm.activeAnimation) {
+                event.stopPropagation();
+                skipAnimation();
+                return;
+            }
+
+            if (this.fsm.isEgg || this.fsm.stats.isDead) return;
+            event.stopPropagation();
+            this.showPetTapDialogue();
+        });
+    }
+
+    private showPetTapDialogue() {
+        const context = this.getDialogueContext();
+        const { patternKey, lines } = getPetTapPattern(context);
+        if (!lines.length) return;
+
+        if (this.petTapPatternKey !== patternKey) {
+            this.petTapPatternKey = patternKey;
+            this.petTapLines = lines;
+            this.petTapIndex = 0;
+        }
+
+        const text = this.petTapLines[this.petTapIndex % this.petTapLines.length];
+        this.petTapIndex++;
+        this.showDialogue({
+            text,
+            priority: 0,
+            ttlMs: 3200,
+        });
+    }
+
     public async switchOverlay(target: UIOverlayState, openAction?: () => void) {
         if (this.currentOverlay === target && target !== 'SUBMENU') return;
         if (this.overlayTransitioning) return;
@@ -271,10 +326,46 @@ export class UIManager {
         return '❄️ 겨울';
     }
 
+    private getStageLabel() {
+        const stages = ['아기', '꼬마', '소년', '어른'];
+        return stages[this.fsm.stats.evolutionTier] || '어른';
+    }
+
+    private formatDurationLabel(seconds: number) {
+        const totalMinutes = Math.max(0, Math.ceil(seconds / 60));
+        const hours = Math.floor(totalMinutes / 60);
+        const minutes = totalMinutes % 60;
+
+        if (hours > 0 && minutes > 0) return `${hours}시간 ${minutes}분`;
+        if (hours > 0) return `${hours}시간`;
+        return `${Math.max(1, minutes)}분`;
+    }
+
+    private updateGrowthPanel() {
+        const ageEl = document.getElementById('pet-age-pill');
+        const stageEl = document.getElementById('stage-badge');
+        const growthCaptionEl = document.getElementById('growth-caption');
+        const growthNextEl = document.getElementById('growth-next');
+        const growthProgressEl = document.getElementById('growth-progress');
+
+        const currentAge = this.fsm.getDisplayAgeYears();
+        const nextMilestone = this.fsm.getNextGrowthMilestone();
+        const previousAge = Math.max(0, nextMilestone.ageYears - 1);
+        const previousRequired = getActiveSecondsForAge(previousAge);
+        const requiredSpan = Math.max(1, nextMilestone.activeSecondsRequired - previousRequired);
+        const progress = ((this.fsm.stats.ageTicks - previousRequired) / requiredSpan) * 100;
+
+        if (ageEl) ageEl.textContent = `🕒 ${currentAge}살`;
+        if (stageEl) stageEl.textContent = `${this.getStageLabel()} 단계`;
+        if (growthCaptionEl) growthCaptionEl.textContent = currentAge < 2 ? '폭풍 성장까지' : '다음 성장까지';
+        if (growthNextEl) growthNextEl.textContent = `${nextMilestone.ageYears}살까지 ${this.formatDurationLabel(nextMilestone.secondsUntil)}`;
+        if (growthProgressEl) growthProgressEl.setAttribute('style', `width: ${Math.max(0, Math.min(100, progress))}%`);
+    }
+
     public showToast(msg: string) {
         const container = document.getElementById('toast-container')!;
         const t = document.createElement('div');
-        t.className = 'bg-slate-800 text-white text-[13px] font-bold px-4 py-2 rounded-xl text-center shadow-lg transition-all flex justify-center w-max mx-auto mb-2';
+        t.className = 'mx-auto mb-2 flex w-max max-w-full justify-center rounded-full border border-white/70 bg-slate-900/86 px-4 py-2 text-center text-[13px] font-bold text-white shadow-lg backdrop-blur transition-all';
         t.innerText = msg;
         container.appendChild(t);
         setTimeout(() => {
@@ -341,45 +432,155 @@ export class UIManager {
     }
 
     private handleActionResult(res: { success: boolean, msg: string, react?: string }) {
+        if (res.success) AUDIO.playPop();
+        else AUDIO.playError();
         this.showToast(res.msg);
         if (res.react) this.showReaction(res.react);
         this.switchOverlay('NONE');
     }
 
+    private getActionFeedback(actionId: string, res: { success: boolean, msg: string }) {
+        if (!res.success) {
+            switch (actionId) {
+                case 'feed_fern':
+                case 'feed_conifer':
+                case 'feed_vitamin':
+                case 'feed_medicine':
+                    return '지금은 먹이기 어려워요. 배 상태와 컨디션을 먼저 확인해 주세요.';
+                case 'train_ball':
+                case 'train_frisbee':
+                case 'train_discipline':
+                case 'train_walk':
+                case 'train_sing':
+                case 'train_dance':
+                    return '기력이 조금 모자라요. 쉬고 나서 다시 놀아볼까요?';
+                case 'wash_face':
+                case 'wash_feet':
+                case 'wash_shower':
+                case 'wash_bath':
+                case 'wash_mud':
+                    return '지금은 씻기 행동을 하기 어려워요.';
+                case 'interact_hospital':
+                    return '병원에 가기 전에 골드를 조금 더 모아야 해요.';
+                default:
+                    return res.msg;
+            }
+        }
+
+        switch (actionId) {
+            case 'feed_fern': return '고사리를 냠냠! 배가 든든해졌어요.';
+            case 'feed_conifer': return '침엽수를 우물우물! 쑥쑥 자랄 힘이 차올라요.';
+            case 'feed_vitamin': return '비타민으로 컨디션 충전 완료!';
+            case 'feed_medicine': return '특효약을 먹고 다시 기운을 차렸어요.';
+            case 'train_ball': return '공놀이 완료! 몸도 마음도 신났어요.';
+            case 'train_frisbee': return '프리스비를 멋지게 받아냈어요!';
+            case 'train_discipline': return '차분하게 집중 훈련을 마쳤어요.';
+            case 'train_walk': return '산책을 마치고 건강함이 쑥 올랐어요.';
+            case 'train_sing': return '콧노래가 절로 나오는 기분이에요.';
+            case 'train_dance': return '리듬 타며 신나게 춤췄어요!';
+            case 'sleep_bed': return this.fsm.isSleeping ? '포근한 침대에 쏙 들어갔어요.' : '푹 쉬고 상쾌하게 일어났어요.';
+            case 'sleep_floor': return this.fsm.isSleeping ? '바닥에서 새근새근 잠들었어요.' : '눈을 비비며 천천히 일어났어요.';
+            case 'sleep_outside': return this.fsm.isSleeping ? '캠핑 잠자리에서 별을 보며 잠들었어요.' : '햇살을 받으며 상쾌하게 기상했어요.';
+            case 'wash_face': return '세수 완료! 얼굴이 반짝해졌어요.';
+            case 'wash_feet': return '발도장까지 깨끗하게 씻어냈어요.';
+            case 'wash_shower': return '샤워로 먼지를 시원하게 털어냈어요.';
+            case 'wash_bath': return '목욕 끝! 보송보송 향긋해졌어요.';
+            case 'wash_mud': return '진흙 목욕으로 신나게 뒹굴었어요.';
+            case 'interact_praise': return '칭찬을 듣고 눈이 반짝였어요.';
+            case 'interact_scold': return '조금 삐졌지만 금세 마음을 다잡고 있어요.';
+            case 'interact_hospital': return '병원에서 꼼꼼히 진료받고 돌아왔어요.';
+            case 'interact_pasture': return '들판으로 산책을 떠났어요. 잠시 후 돌아올 거예요.';
+            default: return res.msg;
+        }
+    }
+
     private openSubmenu(title: string, categoryId: CategoryId) {
         const items = getActionsByCategory(categoryId);
         this.submenuTitle.innerText = title;
+        this.submenuOptions.className = 'grid grid-cols-2 gap-3';
         this.submenuOptions.innerHTML = items.map((it, i) => {
             const hasItem = this.fsm.hasItem(it.id);
             const count = this.fsm.stats.inventory[it.id] || 0;
-            const statusLabel = hasItem ? (it.isPermanent ? '✅ 보유' : `🎒 ${count}`) : `❌ 눌러서 🛒 ${it.price}${it.currency === 'gold' ? 'G' : '💎'} 구매`;
+            const isEnabled = it.enabledWhen(this.fsm);
+            const priceText = `${it.price}${it.currency === 'gold' ? 'G' : '💎'}`;
+
+            let badgeLabel = '구매';
+            let badgeClass = 'bg-slate-100 text-slate-600';
+            let footerHint = `탭하면 ${priceText}에 준비돼요`;
+            let footerValue = priceText;
+            let footerValueClass = it.currency === 'gold' ? 'text-amber-600' : 'text-fuchsia-600';
+
+            if (it.unlockReq?.tier !== undefined && this.fsm.stats.evolutionTier < it.unlockReq.tier) {
+                badgeLabel = '잠금';
+                badgeClass = 'bg-amber-100 text-amber-700';
+                footerHint = `${it.unlockReq.tier}단계부터 열려요`;
+                footerValue = '성장 필요';
+                footerValueClass = 'text-amber-700';
+            } else if (it.unlockReq?.gold !== undefined && this.shopSystem.totalGoldEarned < it.unlockReq.gold) {
+                badgeLabel = '잠금';
+                badgeClass = 'bg-amber-100 text-amber-700';
+                footerHint = `누적 ${it.unlockReq.gold}G를 모으면 열려요`;
+                footerValue = '실적 필요';
+                footerValueClass = 'text-amber-700';
+            } else if (hasItem) {
+                if (it.isPermanent) {
+                    badgeLabel = '보유';
+                    badgeClass = 'bg-emerald-100 text-emerald-700';
+                    footerHint = '한 번 산 도구라 계속 쓸 수 있어요';
+                    footerValue = '영구 사용';
+                    footerValueClass = 'text-emerald-700';
+                } else {
+                    badgeLabel = '보관';
+                    badgeClass = 'bg-indigo-100 text-indigo-700';
+                    footerHint = '지금 바로 사용할 수 있어요';
+                    footerValue = `${count}개 보유`;
+                    footerValueClass = 'text-indigo-700';
+                }
+            }
+
+            if (!isEnabled) {
+                footerHint = categoryId === 'train'
+                    ? '기운을 조금 더 채우면 할 수 있어요'
+                    : '지금은 이 행동을 하기 어려워요';
+            }
+
             return `
-      <button class="flex flex-col items-center justify-center bg-slate-50 border border-slate-200 rounded-2xl p-3 active:scale-95 transition-all text-sm font-bold text-slate-700 ${!it.enabledWhen(this.fsm) ? 'opacity-40 grayscale' : ''}" id="submenu-btn-${i}">
-        <span class="text-3xl mb-1">${it.icon}</span>
-        <span class="break-keep">${it.label}</span>
-        <span class="text-[10px] ${hasItem ? 'text-indigo-600' : 'text-slate-500'} mt-1">${statusLabel}</span>
+      <button class="group flex min-h-[10.25rem] flex-col rounded-[1.6rem] border border-slate-200 bg-white/95 px-4 py-4 text-left shadow-sm transition-all active:scale-[0.98] ${!isEnabled ? 'opacity-45 grayscale' : 'hover:-translate-y-[1px] hover:shadow-md'}" id="submenu-btn-${i}">
+        <div class="flex items-center justify-between gap-2">
+          <span class="text-3xl">${it.icon}</span>
+          <span class="rounded-full px-2.5 py-1 text-[10px] font-black ${badgeClass}">${badgeLabel}</span>
+        </div>
+        <div class="mt-3">
+          <div class="text-[15px] font-black tracking-[-0.03em] text-slate-900">${it.label}</div>
+          <p class="mt-1 text-[11px] leading-4 text-slate-500">${it.desc}</p>
+        </div>
+        <div class="mt-auto flex items-end justify-between gap-3 pt-4">
+          <span class="max-w-[7.5rem] text-[11px] font-semibold leading-4 text-slate-400">${footerHint}</span>
+          <span class="shrink-0 text-sm font-black ${footerValueClass}">${footerValue}</span>
+        </div>
       </button>
-    `}).join('');
+    `;
+        }).join('');
 
         items.forEach((it, i) => {
             document.getElementById(`submenu-btn-${i}`)!.addEventListener('click', () => {
                 if (!it.enabledWhen(this.fsm)) {
-                    this.showToast('지금은 할 수 없어요!');
+                    this.showToast(categoryId === 'train' ? '기운을 조금 더 채우면 할 수 있어요.' : '지금은 이 행동을 하기 어려워요.');
                     return;
                 }
 
                 if (this.fsm.consumeItem(it.id)) {
                     const res = it.onSelect(this.fsm);
-                    this.handleActionResult(res);
+                    this.handleActionResult({ ...res, msg: this.getActionFeedback(it.id, res) });
                 } else {
                     // Buy flow directly in submenu
                     if (it.unlockReq) {
                         if (it.unlockReq.tier !== undefined && this.fsm.stats.evolutionTier < it.unlockReq.tier) {
-                            this.showToast(`[잠김] 진화 레벨 ${it.unlockReq.tier} 필요`);
+                            this.showToast(`${it.unlockReq.tier}단계부터 사용할 수 있어요.`);
                             return;
                         }
                         if (it.unlockReq.gold !== undefined && this.shopSystem.totalGoldEarned < it.unlockReq.gold) {
-                            this.showToast(`[잠김] 누적 ${it.unlockReq.gold}G 획득 필요`);
+                            this.showToast(`누적 ${it.unlockReq.gold}G를 모으면 열려요.`);
                             return;
                         }
                     }
@@ -397,13 +598,13 @@ export class UIManager {
                         }
 
                         AUDIO.playClick();
-                        this.showToast(`${it.price}${it.currency === 'gold' ? 'G' : '💎'}로 즉시 구매 완료!`);
+                        this.showToast(`${it.price}${it.currency === 'gold' ? 'G' : '💎'}에 바로 준비했어요.`);
                         this.fsm.consumeItem(it.id);
                         const res = it.onSelect(this.fsm);
-                        this.handleActionResult(res);
+                        this.handleActionResult({ ...res, msg: this.getActionFeedback(it.id, res) });
                     } else {
                         AUDIO.playError();
-                        this.showToast(`${it.currency === 'gold' ? '골드' : '호박석'}가 부족해서 구매할 수 없어요!`);
+                        this.showToast(`${it.currency === 'gold' ? '골드' : '호박석'}가 조금 부족해요.`);
                     }
                 }
                 this.update();
@@ -419,7 +620,7 @@ export class UIManager {
 
     private initUI() {
         const stats = ['fullness', 'happiness', 'cleanliness', 'energy'] as const;
-        const labels = ['🍖 포만', '🎵 행복', '✨ 청결', '⚡ 기력'];
+        const labels = ['포만감', '행복', '청결', '기운'];
         const colors = ['bg-rose-400', 'bg-yellow-400', 'bg-sky-400', 'bg-violet-400'];
 
         this.barsElement.innerHTML = stats.map((stat, i) => `
@@ -432,26 +633,26 @@ export class UIManager {
     `).join('');
 
         const mainBtns = [
-            { id: 'btn-main-feed', icon: '🍖', text: '먹이주기', menu: 'feed' },
+            { id: 'btn-main-feed', icon: '🍖', text: '먹이', menu: 'feed' },
             { id: 'btn-main-train', icon: '🎾', text: '훈련', menu: 'train' },
-            { id: 'btn-main-sleep', icon: '🌙', text: '자기', menu: 'sleep' },
+            { id: 'btn-main-sleep', icon: '🌙', text: '재우기', menu: 'sleep' },
             { id: 'btn-main-wash', icon: '🚿', text: '씻기', menu: 'wash' },
             { id: 'btn-main-shop', icon: '🛒', text: '상점', menu: 'shop' },
-            { id: 'btn-main-interact', icon: '💬', text: '상호작용', menu: 'interact' }
+            { id: 'btn-main-interact', icon: '💬', text: '교감', menu: 'interact' }
         ];
 
         this.buttonsElement.innerHTML = mainBtns.map(b => `
-      <button id="${b.id}" class="relative flex flex-col items-center justify-center py-2 px-1 bg-white rounded-2xl shadow-sm border border-slate-200 focus:outline-none hover:bg-slate-50 active:scale-95 transition-all text-slate-700 font-bold text-xs sm:text-sm">
-        <span class="text-2xl mb-1">${b.icon}</span>
-        <span>${b.text}</span>
+      <button id="${b.id}" class="relative flex min-h-[4.95rem] flex-col items-center justify-center rounded-[1.35rem] border border-slate-200/90 bg-white/96 px-1 py-2 text-slate-700 shadow-sm transition-all active:scale-[0.97]">
+        <span class="text-[1.45rem] leading-none">${b.icon}</span>
+        <span class="mt-1 text-[10px] font-black leading-tight tracking-[-0.03em] whitespace-nowrap">${b.text}</span>
       </button>
     `).join('');
 
-        document.getElementById('btn-main-feed')!.addEventListener('click', () => this.switchOverlay('SUBMENU', () => this.openSubmenu('🍖 먹이주기', 'feed')));
-        document.getElementById('btn-main-train')!.addEventListener('click', () => this.switchOverlay('SUBMENU', () => this.openSubmenu('🎾 훈련', 'train')));
-        document.getElementById('btn-main-sleep')!.addEventListener('click', () => this.switchOverlay('SUBMENU', () => this.openSubmenu('🌙 재우기', 'sleep')));
-        document.getElementById('btn-main-wash')!.addEventListener('click', () => this.switchOverlay('SUBMENU', () => this.openSubmenu('🚿 씻기', 'wash')));
-        document.getElementById('btn-main-interact')!.addEventListener('click', () => this.switchOverlay('SUBMENU', () => this.openSubmenu('💬 상호작용', 'interact')));
+        document.getElementById('btn-main-feed')!.addEventListener('click', () => this.switchOverlay('SUBMENU', () => this.openSubmenu('먹이 주기', 'feed')));
+        document.getElementById('btn-main-train')!.addEventListener('click', () => this.switchOverlay('SUBMENU', () => this.openSubmenu('훈련하기', 'train')));
+        document.getElementById('btn-main-sleep')!.addEventListener('click', () => this.switchOverlay('SUBMENU', () => this.openSubmenu('재우기', 'sleep')));
+        document.getElementById('btn-main-wash')!.addEventListener('click', () => this.switchOverlay('SUBMENU', () => this.openSubmenu('씻기', 'wash')));
+        document.getElementById('btn-main-interact')!.addEventListener('click', () => this.switchOverlay('SUBMENU', () => this.openSubmenu('교감하기', 'interact')));
 
         document.getElementById('btn-main-shop')!.addEventListener('click', () => this.switchOverlay('SHOP', () => this.openShop()));
     }
@@ -640,6 +841,98 @@ export class UIManager {
       </div>
     `}).join('');
 
+        if (this.shopSystem.isTimeSaleActive()) {
+            tsItems.innerHTML = this.shopSystem.getTimeSaleItems().map(item => `
+      <div class="rounded-[1.35rem] border border-rose-200 bg-white/95 p-3 shadow-sm">
+        <div class="flex items-center gap-3">
+          <div class="flex h-14 w-14 items-center justify-center rounded-2xl bg-rose-50 text-3xl">${item.icon}</div>
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center justify-between gap-2">
+              <span class="truncate text-sm font-black text-slate-800">${item.name}</span>
+              <span class="rounded-full bg-rose-50 px-2.5 py-1 text-[11px] font-black text-rose-600">💎 ${item.price}</span>
+            </div>
+            <span class="mt-1 block text-[11px] leading-4 text-slate-500">${item.desc}</span>
+          </div>
+        </div>
+        <button class="btn-buy-ts mt-3 flex w-full items-center justify-between rounded-2xl bg-rose-500 px-4 py-3 text-sm font-black text-white shadow-sm transition-all active:scale-95" data-id="${item.id}">
+          <span>바로 장만하기</span>
+          <span>💎 ${item.price}</span>
+        </button>
+      </div>
+    `).join('');
+
+            tsItems.querySelectorAll('.btn-buy-ts').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const id = (e.currentTarget as HTMLElement).dataset.id!;
+                    const res = this.shopSystem.buyTimeSaleItem(id);
+                    this.showToast(res.msg);
+                    if (res.success) this.openShop();
+                });
+            });
+        }
+
+        feedContainer.innerHTML = this.shopSystem.getFeedItems().map((item) => {
+            const count = this.fsm.stats.inventory[item.id] || 0;
+            const isInstant = item.type === 'instant';
+            const statusClass = count > 0 && !isInstant ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-500';
+            const statusText = isInstant ? '누르면 바로 사용' : count > 0 ? `${count}개 보유` : '준비되지 않음';
+            const priceText = `${item.currency === 'gold' ? '💰' : '💎'} ${item.price}`;
+
+            return `
+      <div class="flex flex-col rounded-[1.45rem] border border-slate-200 bg-white/96 p-3 shadow-sm">
+        <div class="flex items-start gap-3">
+          <div class="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-sky-50 text-3xl">${item.icon}</div>
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center justify-between gap-2">
+              <span class="truncate text-[15px] font-black tracking-[-0.03em] text-slate-900">${item.name}</span>
+              <span class="rounded-full px-2.5 py-1 text-[10px] font-black ${statusClass}">${statusText}</span>
+            </div>
+            <p class="mt-1 text-[11px] leading-4 text-slate-500">${item.desc}</p>
+          </div>
+        </div>
+        <button class="btn-buy mt-3 flex w-full items-center justify-between rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm font-black text-sky-700 transition-all active:scale-95" data-id="${item.id}">
+          <span>${isInstant ? '바로 쓰기' : '구매하기'}</span>
+          <span>${priceText}</span>
+        </button>
+      </div>
+    `;
+        }).join('');
+
+        toolContainer.innerHTML = this.shopSystem.getToolItems().map((item) => {
+            const isLockedTier = item.unlockReq?.tier && this.fsm.stats.evolutionTier < item.unlockReq.tier;
+            const isLockedGold = item.unlockReq?.gold && this.shopSystem.totalGoldEarned < item.unlockReq.gold;
+            const isBought = this.shopSystem.purchases[item.id] > 0;
+            const priceText = `${item.currency === 'gold' ? '💰' : '💎'} ${item.price}`;
+
+            let statusHtml = '';
+            if (isBought) {
+                statusHtml = `<div class="mt-3 rounded-2xl bg-emerald-50 px-4 py-3 text-center text-sm font-black text-emerald-600">보유 중</div>`;
+            } else if (isLockedTier || isLockedGold) {
+                const reqTexts = [];
+                if (isLockedTier) reqTexts.push(`진화 ${item.unlockReq!.tier}단계`);
+                if (isLockedGold) reqTexts.push(`누적 ${item.unlockReq!.gold}G`);
+                statusHtml = `<div class="mt-3 rounded-2xl bg-slate-100 px-4 py-3 text-center text-[11px] font-black leading-4 text-slate-500">필요 조건: ${reqTexts.join(' · ')}</div>`;
+            } else {
+                statusHtml = `<button class="btn-buy mt-3 flex w-full items-center justify-between rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-black text-amber-700 transition-all active:scale-95" data-id="${item.id}"><span>장만하기</span><span>${priceText}</span></button>`;
+            }
+
+            return `
+      <div class="flex flex-col rounded-[1.45rem] border border-slate-200 bg-white/96 p-3 shadow-sm">
+        <div class="flex items-center gap-3">
+          <div class="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-amber-50 text-3xl">${item.icon}</div>
+          <div class="flex min-w-0 flex-1 flex-col pointer-events-none">
+            <span class="truncate text-[15px] font-black tracking-[-0.03em] text-slate-900">${item.name}</span>
+            <span class="mt-1 text-[11px] leading-4 text-slate-500">${item.desc}</span>
+            <div class="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+              <div class="h-full bg-indigo-300" style="width: ${item.level ? (item.level / 5) * 100 : 0}%"></div>
+            </div>
+          </div>
+        </div>
+        ${statusHtml}
+      </div>
+    `;
+        }).join('');
+
         const buyHandler = (e: Event) => {
             const id = (e.currentTarget as HTMLElement).dataset.id!;
             const item = [...this.shopSystem.getFeedItems(), ...this.shopSystem.getToolItems()].find(i => i.id === id);
@@ -709,12 +1002,11 @@ export class UIManager {
         const goldPreview = document.getElementById('quiz-gold-preview')!;
 
         qText.textContent = this.mathCurrentQ.text;
-        qHint.textContent = `💡 ${this.mathCurrentQ.hint}`;
+        qHint.textContent = `힌트: ${this.mathCurrentQ.hint}`;
         qHint.classList.add('hidden');
         btnNext.classList.add('hidden');
 
-        // Tier badge
-        const tierNames = ['워밍업', '기본', '확장', '숙련'];
+        const tierNames = ['쉬움', '기본', '집중', '도전'];
         tierBadge.textContent = `Lv.${this.mathCurrentQ.tier + 1} ${tierNames[this.mathCurrentQ.tier]}`;
 
         // 여기까지 버튼: combo >= 1부터 표시
@@ -724,15 +1016,14 @@ export class UIManager {
             btnQuitEarly.classList.add('hidden');
         }
 
-        // Gold preview
-        goldPreview.textContent = `💰 +${this.mathGoldEarned}`;
+        goldPreview.textContent = `획득 예정 💰 ${this.mathGoldEarned}`;
 
         // Combo indicator bars
         for (let i = 1; i <= 3; i++) {
             const el = document.getElementById(`quiz-combo-${i}`)!;
             if (i <= this.mathCombo) {
                 el.className = 'flex-1 h-8 rounded-xl border-2 border-yellow-400 bg-yellow-100 flex items-center justify-center text-xs font-black text-yellow-700 transition-all';
-                el.textContent = `${i}콤보 ✅`;
+                el.textContent = `${i}콤보 완료`;
             } else {
                 const golds = [10, 16, 24];
                 el.className = 'flex-1 h-8 rounded-xl border-2 border-slate-200 bg-slate-100 flex items-center justify-center text-xs font-black text-slate-400 transition-all';
@@ -771,14 +1062,14 @@ export class UIManager {
                 this.fsm.stats.mathQuizTier = this.mathQuizEngine.getTier();
                 this.fsm.recordGamePlayed('math_quiz');
                 this.update();
-                alert(`🎉 3콤보 달성! 수학 알바 완료!\n💰 +${this.mathGoldEarned} · 💎 +${MATH_QUIZ_AMBER_BONUS}`);
+                alert(`수학 알바 완료!\n💰 ${this.mathGoldEarned} 획득\n💎 ${MATH_QUIZ_AMBER_BONUS} 보너스`);
                 this.mathQuizEngine = null;
                 this.mathCurrentQ = null;
                 this.mathCombo = 0;
                 this.mathGoldEarned = 0;
                 this.switchOverlay('ARBEIT');
             } else {
-                this.showToast(`정답! 💰+${reward} (${this.mathCombo}/3콤보)`);
+                this.showToast(`정답! 💰 ${reward} (${this.mathCombo}/3콤보)`);
                 this.showMathQuiz();
             }
         } else {
@@ -789,9 +1080,9 @@ export class UIManager {
                 this.mathHintShown = true;
                 qHint.classList.remove('hidden');
                 document.getElementById('btn-next-quiz')!.classList.remove('hidden');
-                this.showToast('틀렸어! 힌트를 보고 다시 풀어봐 🦕');
+                this.showToast('다시 풀어보자. 힌트를 먼저 읽어봐.');
             } else {
-                this.showToast('다시 한번 힌트를 천천히 읽어봐 😊');
+                this.showToast('천천히 다시 생각해 봐도 괜찮아.');
             }
         }
     }
@@ -842,6 +1133,12 @@ export class UIManager {
         this.amberElement.innerText = Math.floor(s.amber).toString();
         this.goldElement.innerText = Math.floor(s.gold).toString();
         this.medicineElement.innerText = Math.floor(s.medicine).toString();
+        this.updateGrowthPanel();
+
+        if (this.animationSkipButton) {
+            const showSkip = !!this.fsm.activeAnimation && this.currentOverlay === 'NONE';
+            this.animationSkipButton.classList.toggle('hidden', !showSkip);
+        }
 
         // Weather alert badge
         const weatherBadge = document.getElementById('weather-badge')!;
@@ -911,20 +1208,20 @@ export class UIManager {
             }
         }
         // Update HUD Name
-        const petNameHeader = document.querySelector('h1.text-xl.font-black.text-slate-800');
+        const petNameHeader = document.getElementById('pet-name-heading');
         if (petNameHeader) {
             petNameHeader.textContent = s.name || '브라키오';
         }
 
         switch (this.fsm.currentState) {
-            case 'Idle': this.stateTextElement.innerText = '기분이 좋아요! 🌿'; break;
-            case 'Hungry': this.stateTextElement.innerText = '배고파요... 🍖'; break;
-            case 'Dirty': this.stateTextElement.innerText = '씻고 싶어요 🚿'; break;
-            case 'Sleepy': this.stateTextElement.innerText = '졸려요... 🥱'; break;
-            case 'Sleep': this.stateTextElement.innerText = '쿨쿨... 🌙'; break;
-            case 'Quiz': this.stateTextElement.innerText = '아르바이트 중! ✏️'; break;
-            case 'Naughty': this.stateTextElement.innerText = '말썽 부릴 거야! 💢'; break;
-            case 'Sick': this.stateTextElement.innerText = '아파요... 💊 (특효약 필요!)'; break;
+            case 'Idle': this.stateTextElement.innerText = '오늘도 기분 최고! 🌿'; break;
+            case 'Hungry': this.stateTextElement.innerText = '배가 고파요... 🌿'; break;
+            case 'Dirty': this.stateTextElement.innerText = '씻겨 주면 다시 반짝일 수 있어요 🚿'; break;
+            case 'Sleepy': this.stateTextElement.innerText = '졸려서 눈이 감겨요 🌙'; break;
+            case 'Sleep': this.stateTextElement.innerText = '쿨쿨 자라는 중... 😴'; break;
+            case 'Quiz': this.stateTextElement.innerText = '열심히 일하는 중! ✏️'; break;
+            case 'Naughty': this.stateTextElement.innerText = '지금은 조금 심통났어요 💢'; break;
+            case 'Sick': this.stateTextElement.innerText = '몸이 안 좋아요... 💊'; break;
         }
     }
 
@@ -1045,9 +1342,9 @@ export class UIManager {
                 this.fsm.recordGamePlayed(gameId); // 4-hour cooldown
                 this.update();
 
-                const amberStr = result.amberEarned > 0 ? ` · 💎+${result.amberEarned}` : '';
+                const amberStr = result.amberEarned > 0 ? ` · 💎 ${result.amberEarned}` : '';
                 setTimeout(() => {
-                    this.showToast(`수고했어요! 💰+${result.goldEarned}${amberStr}`);
+                    this.showToast(`아르바이트 완료! 💰 ${result.goldEarned}${amberStr}`);
                     this.switchOverlay('ARBEIT');
                 }, 400);
             });
@@ -1079,8 +1376,7 @@ export class UIManager {
         this.mgPos = 0;
         this.mgDir = 1;
 
-        // Base speed 1.0 + difficulty scaling with combo
-        this.mgSpeed = 1.0 + (this.mgCombo * 0.15);
+        this.mgSpeed = 0.72 + (this.mgCombo * 0.08);
         document.getElementById('minigame-combo')!.innerText = `콤보: ${this.mgCombo}`;
 
         if (this.mgLoop !== null) cancelAnimationFrame(this.mgLoop);
@@ -1104,8 +1400,8 @@ export class UIManager {
         if (this.mgLoop === null) return;
         this.stopMinigame();
 
-        const isSuccess = this.mgPos > 35 && this.mgPos < 65;
-        const isPerfect = this.mgPos > 45 && this.mgPos < 55;
+        const isSuccess = this.mgPos > 28 && this.mgPos < 72;
+        const isPerfect = this.mgPos > 42 && this.mgPos < 58;
 
         // Combo-scaled gold: Perfect 15/20/25, Hit 8/10/12 at combo 0/1/2+
         const comboSlot = Math.min(2, this.mgCombo); // 0=first, 1=second, 2+=highest
@@ -1258,13 +1554,13 @@ export class UIManager {
         const personalityEl = document.getElementById('death-personality');
         const tierEl = document.getElementById('death-tier');
 
-        if (reasonEl) reasonEl.innerText = this.fsm.stats.deathReason || '평화롭게 여행을 떠났습니다.';
+        if (reasonEl) reasonEl.innerText = this.fsm.stats.deathReason || '별빛이 가득한 들판에서 조용히 쉬고 있어요.';
 
         if (ageEl) {
             const msLived = (this.fsm.stats.diedAtMs || Date.now()) - this.fsm.stats.bornAtMs;
             const daysLived = Math.max(1, Math.floor(msLived / (24 * 60 * 60 * 1000)));
-            const ageYears = Math.floor((this.fsm.stats.ageTicks * 1000) / (24 * 60 * 60 * 1000) / 3); // 3 days = 1 year roughly, based on old balancing
-            ageEl.innerText = `${ageYears}살 (생존 ${daysLived}일)`;
+            const ageYears = this.fsm.getDisplayAgeYears();
+            ageEl.innerText = `${ageYears}살 · 함께한 ${daysLived}일`;
         }
 
         if (personalityEl) {
@@ -1272,8 +1568,7 @@ export class UIManager {
         }
 
         if (tierEl) {
-            const tiers = ['아기(알)', '어린이', '청소년', '어른'];
-            tierEl.innerText = tiers[this.fsm.stats.evolutionTier] || '어른';
+            tierEl.innerText = this.getStageLabel();
         }
     }
 }

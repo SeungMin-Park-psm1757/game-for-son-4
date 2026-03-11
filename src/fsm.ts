@@ -1,8 +1,21 @@
 import { BALANCE } from './balance';
 import { HOOKS } from './events/hooks';
 import { Personality } from './events/personality';
+import {
+    getAgeYearsFromActiveSeconds,
+    getDisplayAgeYears,
+    getEvolutionTierFromActiveSeconds,
+    getNextGrowthMilestone,
+} from './growth';
 
 export type PetState = 'Idle' | 'Hungry' | 'Dirty' | 'Sleepy' | 'Sleep' | 'Quiz' | 'Sick' | 'Naughty';
+
+export interface ActiveAnimation {
+    id: string;
+    startedAt: number;
+    until: number;
+    durationMs: number;
+}
 
 export interface GraveyardRecord {
     name: string;
@@ -137,7 +150,7 @@ export class FSM {
     public isEvolutionTriggered: boolean = false;
 
     // Animation States
-    public activeAnimation: { id: string, until: number } | null = null;
+    public activeAnimation: ActiveAnimation | null = null;
     public wanderX: number = 0;
     public wanderTargetX: number = 0;
     public wanderWaitUntil: number = 0;
@@ -217,6 +230,49 @@ export class FSM {
         return Date.now() - last >= COOLDOWN_MS;
     }
 
+    public getAgeYears(): number {
+        return getAgeYearsFromActiveSeconds(this.stats.ageTicks);
+    }
+
+    public getDisplayAgeYears(): number {
+        return getDisplayAgeYears(this.stats.ageTicks);
+    }
+
+    public getNextGrowthMilestone() {
+        return getNextGrowthMilestone(this.stats.ageTicks);
+    }
+
+    public skipActiveAnimation() {
+        this.activeAnimation = null;
+    }
+
+    private getAnimationDuration(actionId: string): number {
+        switch (actionId) {
+            case 'feed_fern': return 1800;
+            case 'feed_conifer': return 2200;
+            case 'feed_vitamin': return 1700;
+            case 'feed_medicine': return 2200;
+            case 'feed_special': return 2000;
+            case 'train_ball': return 2300;
+            case 'train_frisbee': return 2500;
+            case 'train_discipline': return 1800;
+            case 'train_walk': return 2600;
+            case 'train_sing': return 2400;
+            case 'train_dance': return 3200;
+            case 'wash_face': return 1700;
+            case 'wash_feet': return 1800;
+            case 'wash_body': return 2100;
+            case 'wash_shower': return 2600;
+            case 'wash_bath': return 3600;
+            case 'wash_mud': return 2200;
+            case 'interact_praise': return 1700;
+            case 'interact_scold': return 1700;
+            case 'interact_hospital': return 2200;
+            case 'interact_pasture': return 2800;
+            default: return 2000;
+        }
+    }
+
     public recordGamePlayed(gameId: string) {
         this.stats.gameLastPlayedMs[gameId] = Date.now();
     }
@@ -287,6 +343,10 @@ export class FSM {
 
     public hatchEgg() {
         this.stats.introSeen = true;
+        this.stats.bornAtMs = Date.now();
+        this.stats.ageTicks = 0;
+        this.stats.evolutionTier = 0;
+        this.lastTick = Date.now();
         this.stats.inventory['feed_fern'] = 5;
         this.stats.inventory['train_ball'] = 1;
         this.evaluateState();
@@ -350,6 +410,8 @@ export class FSM {
         const dt = (now - this.lastTick) / 1000;
         this.lastTick = now;
 
+        if (this.isEgg) return;
+
         const todayStr = new Date(now).toDateString();
         if (this.lastPlayString !== todayStr) {
             const newP = HOOKS.onDayBoundaryReached();
@@ -399,11 +461,11 @@ export class FSM {
             if (now > this.wanderWaitUntil) {
                 if (Math.abs(this.wanderTargetX - this.wanderX) < 5) {
                     // Pick new target
-                    this.wanderTargetX = (Math.random() - 0.5) * 120; // -60 to 60
-                    this.wanderWaitUntil = now + 2000 + Math.random() * 5000; // Wait 2~7 sec after reaching
+                    this.wanderTargetX = (Math.random() - 0.5) * 132;
+                    this.wanderWaitUntil = now + 3200 + Math.random() * 4600;
                 } else {
                     // Move towards target
-                    const speed = 20 * dt; // pixels per second
+                    const speed = 11 * dt;
                     if (this.wanderTargetX > this.wanderX) {
                         this.wanderX = Math.min(this.wanderX + speed, this.wanderTargetX);
                     } else {
@@ -446,7 +508,7 @@ export class FSM {
             const lonelyDecay = pInfo === 'Lonely' ? 1.2 : 1.0;
 
             // Age & PM Stats modifiers
-            const ageYears = Math.floor((this.stats.ageTicks * 1000) / BALANCE.MS_PER_DAY / 3);
+            const ageYears = this.getDisplayAgeYears();
             let ageMultiplier = 1.0;
             if (ageYears >= 8) ageMultiplier = 1.2; // Gets tired/hungry faster when old
             if (ageYears <= 1) ageMultiplier = 1.1; // Babies need more care
@@ -536,17 +598,8 @@ export class FSM {
 
     public checkEvolution() {
         const oldTier = this.stats.evolutionTier;
-        if (this.stats.ageTicks > 24 * 60 * 60) {
-            this.stats.evolutionTier = 3; // Adult
-            this.stats.hasAirSacs = true;
-        } else if (this.stats.ageTicks > 12 * 60 * 60) {
-            this.stats.evolutionTier = 2; // Teen
-            this.stats.hasAirSacs = true;
-        } else if (this.stats.ageTicks > 2 * 60 * 60) {
-            this.stats.evolutionTier = 1; // Child
-        } else {
-            this.stats.evolutionTier = 0; // Baby
-        }
+        this.stats.evolutionTier = getEvolutionTierFromActiveSeconds(this.stats.ageTicks);
+        this.stats.hasAirSacs = this.stats.evolutionTier >= 2;
 
         if (this.stats.evolutionTier > oldTier) {
             this.isEvolutionTriggered = true;
@@ -901,11 +954,15 @@ export class FSM {
             HOOKS.onActionPerformed(actionId, { timestamp: Date.now() });
 
             // Trigger animation
-            let animDuration = 2000;
-            if (actionId === 'wash_bath') animDuration = 4000;
-            if (actionId === 'train_dance') animDuration = 3000;
+            const startedAt = Date.now();
+            const animDuration = this.getAnimationDuration(actionId);
 
-            this.activeAnimation = { id: actionId, until: Date.now() + animDuration };
+            this.activeAnimation = {
+                id: actionId,
+                startedAt,
+                until: startedAt + animDuration,
+                durationMs: animDuration,
+            };
 
             this.evaluateState();
         }

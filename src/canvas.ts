@@ -1,4 +1,5 @@
 import { FSM, PetState } from './fsm';
+import { getAgeYearsFromActiveSeconds } from './growth';
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Expression catalog – 20 named presets using eye + mouth descriptors
@@ -15,6 +16,16 @@ interface Expression {
     blush?: boolean;
     blushColor?: string;
     browType?: 'none' | 'angry' | 'worried' | 'raised';
+}
+
+interface AnimationSnapshot {
+    id: string;
+    progress: number;
+    pulse: number;
+    bounce: number;
+    sway: number;
+    wiggle: number;
+    flutter: number;
 }
 
 const EXPRESSIONS: Record<ExpressionKey, Expression> = {
@@ -40,16 +51,6 @@ const EXPRESSIONS: Record<ExpressionKey, Expression> = {
     smug: { eyeType: 'squint', mouthType: 'smirk', blush: false, browType: 'none' },
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  Age helpers
-//  ageTicks = real seconds elapsed.  1 game-year = 3 game-days = 3*86400 ticks
-// ─────────────────────────────────────────────────────────────────────────────
-const TICKS_PER_YEAR = 3 * 24 * 60 * 60; // 259200 s
-
-function getAgeYears(ageTicks: number): number {
-    return ageTicks / TICKS_PER_YEAR;
-}
-
 /** Returns a size multiplier based on age (4yr = 1.0 baseline) */
 function ageSizeMultiplier(ageYears: number): number {
     if (ageYears < 0.1) return 0.35;        // just hatched – tiny
@@ -62,22 +63,28 @@ function ageSizeMultiplier(ageYears: number): number {
 
 /** Face roundness: younger = rounder (0=square, 1=circle) → head Y radius relative to X */
 function headRoundness(ageYears: number): number {
-    if (ageYears < 1) return 1.05;  // baby: taller than wide = big cute dome
-    if (ageYears < 3) return 0.95;
-    if (ageYears < 6) return 0.80;
-    return 0.72;                       // adult: flatter skull
+    if (ageYears < 1) return 1.14;
+    if (ageYears < 3) return 1.04;
+    if (ageYears < 6) return 0.92;
+    return 0.84;
+}
+
+function headSizeFactor(ageYears: number): number {
+    if (ageYears < 1) return 1.28;
+    if (ageYears < 3) return 1.2;
+    if (ageYears < 6) return 1.12;
+    return 1.04;
 }
 
 /** Walking animation speed divisor – higher = slower feet */
 function legSpeedDivisor(ageYears: number): number {
-    // Slower movements to feel heavier (increased by ~43%)
-    if (ageYears < 1) return 34;
-    if (ageYears < 2) return 40;
-    if (ageYears < 3) return 46;
-    if (ageYears < 5) return 52;
-    if (ageYears < 7) return 60;
-    if (ageYears < 10) return 68;
-    return 80;
+    if (ageYears < 1) return 48;
+    if (ageYears < 2) return 58;
+    if (ageYears < 3) return 68;
+    if (ageYears < 5) return 78;
+    if (ageYears < 7) return 90;
+    if (ageYears < 10) return 104;
+    return 118;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -91,18 +98,383 @@ export class CanvasRenderer {
         this.height = canvasElement.height;
     }
 
-    private drawBackground(_state: PetState, _animId?: string) {
-        // Simple beige background
-        this.ctx.fillStyle = '#fef3c7'; // warm amber-50
-        this.ctx.fillRect(0, 0, this.width, this.height);
-
-        // Ground line
-        this.ctx.strokeStyle = '#d97706';
-        this.ctx.lineWidth = 2;
+    private drawCloud(x: number, y: number, scale: number, alpha: number) {
+        this.ctx.save();
+        this.ctx.globalAlpha = alpha;
+        this.ctx.fillStyle = '#ffffff';
         this.ctx.beginPath();
-        this.ctx.moveTo(0, this.height / 2 + 80);
-        this.ctx.lineTo(this.width, this.height / 2 + 80);
+        this.ctx.ellipse(x, y, 24 * scale, 13 * scale, 0, 0, Math.PI * 2);
+        this.ctx.ellipse(x - 20 * scale, y + 4 * scale, 17 * scale, 11 * scale, 0, 0, Math.PI * 2);
+        this.ctx.ellipse(x + 18 * scale, y + 4 * scale, 18 * scale, 12 * scale, 0, 0, Math.PI * 2);
+        this.ctx.fill();
+        this.ctx.restore();
+    }
+
+    private drawBackground(state: PetState, tickCount: number, animId?: string) {
+        const ctx = this.ctx;
+        ctx.clearRect(0, 0, this.width, this.height);
+
+        const sky = ctx.createLinearGradient(0, 0, 0, this.height);
+        sky.addColorStop(0, '#dff5ff');
+        sky.addColorStop(0.55, '#f8fbff');
+        sky.addColorStop(1, '#f7ecd1');
+        ctx.fillStyle = sky;
+        ctx.fillRect(0, 0, this.width, this.height);
+
+        const sunGlow = ctx.createRadialGradient(this.width - 82, 72, 12, this.width - 82, 72, 82);
+        sunGlow.addColorStop(0, 'rgba(255,244,177,0.95)');
+        sunGlow.addColorStop(0.5, 'rgba(255,209,115,0.35)');
+        sunGlow.addColorStop(1, 'rgba(255,209,115,0)');
+        ctx.fillStyle = sunGlow;
+        ctx.beginPath();
+        ctx.arc(this.width - 82, 72, 82, 0, Math.PI * 2);
+        ctx.fill();
+
+        this.drawCloud(82 + Math.sin(tickCount / 120) * 10, 68, 1, 0.72);
+        this.drawCloud(295 - Math.sin(tickCount / 160) * 8, 108, 0.82, 0.58);
+
+        ctx.fillStyle = '#b8e0b9';
+        ctx.beginPath();
+        ctx.ellipse(this.width * 0.4, this.height - 50, this.width * 0.6, 92, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#7bc47f';
+        ctx.beginPath();
+        ctx.ellipse(this.width * 0.62, this.height - 26, this.width * 0.72, 104, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#6aa96f';
+        ctx.fillRect(0, this.height / 2 + 105, this.width, this.height);
+
+        ctx.strokeStyle = 'rgba(79, 123, 84, 0.18)';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(0, this.height / 2 + 94);
+        ctx.quadraticCurveTo(this.width * 0.42, this.height / 2 + 78, this.width, this.height / 2 + 96);
+        ctx.stroke();
+
+        for (let i = 0; i < 6; i++) {
+            const flowerX = 32 + i * 62 + ((tickCount / 10 + i * 13) % 14);
+            const flowerY = this.height / 2 + 115 + Math.sin((tickCount + i * 20) / 18) * 2;
+            ctx.strokeStyle = '#4f8c5c';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(flowerX, flowerY + 10);
+            ctx.lineTo(flowerX, flowerY - 10);
+            ctx.stroke();
+            ctx.fillStyle = i % 2 === 0 ? '#fda4af' : '#fcd34d';
+            for (let petal = 0; petal < 5; petal++) {
+                const angle = (Math.PI * 2 * petal) / 5;
+                ctx.beginPath();
+                ctx.ellipse(flowerX + Math.cos(angle) * 6, flowerY - 13 + Math.sin(angle) * 6, 4, 3, angle, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.fillStyle = '#fff5b3';
+            ctx.beginPath();
+            ctx.arc(flowerX, flowerY - 13, 3, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        if (this.fsm.activeEvent === 'MeteorShower') {
+            ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+            ctx.lineWidth = 2;
+            for (let i = 0; i < 4; i++) {
+                const meteorX = 80 + i * 74 + ((tickCount * 5 + i * 30) % 120);
+                const meteorY = 34 + i * 18;
+                ctx.beginPath();
+                ctx.moveTo(meteorX, meteorY);
+                ctx.lineTo(meteorX - 26, meteorY + 16);
+                ctx.stroke();
+            }
+        } else if (this.fsm.activeEvent === 'VolcanicAsh') {
+            ctx.fillStyle = 'rgba(94,94,94,0.15)';
+            ctx.fillRect(0, 0, this.width, this.height);
+        } else if (this.fsm.activeEvent === 'Drought') {
+            ctx.fillStyle = 'rgba(251,191,36,0.14)';
+            ctx.fillRect(0, 0, this.width, this.height);
+        }
+
+        if (animId === 'interact_pasture') {
+            ctx.fillStyle = 'rgba(255,255,255,0.28)';
+            for (let i = 0; i < 8; i++) {
+                const bladeX = 20 + i * 48 + (tickCount % 8);
+                ctx.fillRect(bladeX, this.height / 2 + 96, 2, 18 + (i % 3) * 6);
+            }
+        }
+
+        if (state === 'Sleep') {
+            ctx.fillStyle = 'rgba(83, 109, 254, 0.08)';
+            ctx.fillRect(0, 0, this.width, this.height);
+        }
+    }
+
+    private clamp(value: number, min: number, max: number) {
+        return Math.min(max, Math.max(min, value));
+    }
+
+    private getAnimationSnapshot(now: number): AnimationSnapshot | null {
+        const animation = this.fsm.activeAnimation;
+        if (!animation) return null;
+
+        const durationMs = Math.max(animation.durationMs, 1);
+        const progress = this.clamp((now - animation.startedAt) / durationMs, 0, 1);
+
+        return {
+            id: animation.id,
+            progress,
+            pulse: Math.sin(progress * Math.PI),
+            bounce: Math.abs(Math.sin(progress * Math.PI * 4)),
+            sway: Math.sin(progress * Math.PI * 2),
+            wiggle: Math.sin(progress * Math.PI * 6),
+            flutter: Math.abs(Math.sin(progress * Math.PI * 8)),
+        };
+    }
+
+    private drawEmoji(icon: string, x: number, y: number, size: number, rotation: number = 0, alpha: number = 1) {
+        this.ctx.save();
+        this.ctx.translate(x, y);
+        this.ctx.rotate(rotation);
+        this.ctx.globalAlpha = alpha;
+        this.ctx.font = `${Math.max(12, Math.round(size))}px Arial`;
+        this.ctx.textAlign = 'center';
+        this.ctx.textBaseline = 'middle';
+        this.ctx.fillText(icon, 0, 0);
+        this.ctx.restore();
+    }
+
+    private drawSparkle(x: number, y: number, size: number, color: string, alpha: number = 1) {
+        this.ctx.save();
+        this.ctx.translate(x, y);
+        this.ctx.strokeStyle = color;
+        this.ctx.globalAlpha = alpha;
+        this.ctx.lineWidth = Math.max(1.5, size / 6);
+        this.ctx.lineCap = 'round';
+        for (let i = 0; i < 4; i++) {
+            const angle = (Math.PI / 4) + i * (Math.PI / 2);
+            this.ctx.beginPath();
+            this.ctx.moveTo(Math.cos(angle) * size * 0.15, Math.sin(angle) * size * 0.15);
+            this.ctx.lineTo(Math.cos(angle) * size, Math.sin(angle) * size);
+            this.ctx.stroke();
+        }
+        this.ctx.restore();
+    }
+
+    private drawHeart(x: number, y: number, size: number, color: string, alpha: number = 1) {
+        const s = size / 16;
+        this.ctx.save();
+        this.ctx.translate(x, y);
+        this.ctx.scale(s, s);
+        this.ctx.globalAlpha = alpha;
+        this.ctx.fillStyle = color;
+        this.ctx.beginPath();
+        this.ctx.moveTo(0, 6);
+        this.ctx.bezierCurveTo(0, 1, -8, 1, -8, 8);
+        this.ctx.bezierCurveTo(-8, 14, -1, 17, 0, 20);
+        this.ctx.bezierCurveTo(1, 17, 8, 14, 8, 8);
+        this.ctx.bezierCurveTo(8, 1, 0, 1, 0, 6);
+        this.ctx.fill();
+        this.ctx.restore();
+    }
+
+    private drawScribble(x: number, y: number, size: number, color: string) {
+        this.ctx.save();
+        this.ctx.translate(x, y);
+        this.ctx.strokeStyle = color;
+        this.ctx.lineWidth = Math.max(2, size / 10);
+        this.ctx.lineCap = 'round';
+        this.ctx.beginPath();
+        this.ctx.moveTo(-size * 0.45, -size * 0.25);
+        this.ctx.lineTo(-size * 0.1, -size * 0.52);
+        this.ctx.lineTo(size * 0.24, -size * 0.1);
+        this.ctx.lineTo(-size * 0.04, size * 0.22);
+        this.ctx.lineTo(size * 0.36, size * 0.48);
         this.ctx.stroke();
+        this.ctx.restore();
+    }
+
+    private drawActionProps(
+        animation: AnimationSnapshot,
+        tickCount: number,
+        sizeMul: number,
+        headX: number,
+        headY: number,
+        bodyRadiusX: number,
+    ) {
+        const ctx = this.ctx;
+
+        switch (animation.id) {
+            case 'feed_fern':
+                this.drawEmoji('🌿', headX + 42 * sizeMul, headY + 18 * sizeMul + animation.wiggle * 6, 34 * sizeMul, animation.sway * 0.12);
+                ctx.fillStyle = 'rgba(74, 222, 128, 0.65)';
+                for (let i = 0; i < 3; i++) {
+                    ctx.beginPath();
+                    ctx.ellipse(
+                        headX + 12 * sizeMul + i * 8 * sizeMul,
+                        headY + 14 * sizeMul - animation.bounce * 14 + i * 5,
+                        4 * sizeMul,
+                        2 * sizeMul,
+                        animation.progress + i * 0.3,
+                        0,
+                        Math.PI * 2,
+                    );
+                    ctx.fill();
+                }
+                break;
+            case 'feed_conifer':
+                this.drawEmoji('🌲', headX + 58 * sizeMul, headY - 8 * sizeMul - animation.pulse * 12, 38 * sizeMul, -0.1);
+                ctx.strokeStyle = 'rgba(62, 138, 78, 0.42)';
+                ctx.lineWidth = 2 * sizeMul;
+                for (let i = 0; i < 3; i++) {
+                    const needleY = headY + i * 10 - animation.progress * 12;
+                    ctx.beginPath();
+                    ctx.moveTo(headX + 36 * sizeMul + i * 4, needleY);
+                    ctx.lineTo(headX + 22 * sizeMul + i * 2, needleY + 6);
+                    ctx.stroke();
+                }
+                break;
+            case 'feed_vitamin':
+                this.drawEmoji('🍋', headX + 36 * sizeMul, headY + 10 * sizeMul - animation.bounce * 6, 32 * sizeMul, animation.sway * 0.14);
+                this.drawSparkle(headX + 56 * sizeMul, headY - 18 * sizeMul, 10 * sizeMul, '#facc15', 0.9);
+                this.drawSparkle(headX + 20 * sizeMul, headY - 10 * sizeMul - animation.pulse * 6, 7 * sizeMul, '#fde047', 0.85);
+                break;
+            case 'feed_medicine':
+                this.drawEmoji('💊', headX + 36 * sizeMul, headY + 10 * sizeMul + animation.wiggle * 3, 30 * sizeMul, animation.sway * 0.08);
+                ctx.fillStyle = 'rgba(147, 197, 253, 0.55)';
+                for (let i = 0; i < 2; i++) {
+                    ctx.beginPath();
+                    ctx.ellipse(headX + 12 * sizeMul + i * 10, headY + 18 * sizeMul - animation.progress * 16, 5 * sizeMul, 3 * sizeMul, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                break;
+            case 'feed_special':
+                this.drawEmoji('🍓', headX + 34 * sizeMul, headY + 14 * sizeMul - animation.bounce * 6, 32 * sizeMul, animation.sway * 0.12);
+                this.drawHeart(headX + 50 * sizeMul, headY - 10 * sizeMul - animation.progress * 12, 12 * sizeMul, '#fb7185', 0.8);
+                break;
+            case 'train_ball': {
+                const ballX = -110 + animation.progress * 220;
+                const ballY = 82 - Math.abs(Math.sin(animation.progress * Math.PI * 3)) * 68;
+                this.drawEmoji('⚽', ballX, ballY, 36 * sizeMul, animation.progress * Math.PI * 6);
+                ctx.fillStyle = 'rgba(146, 184, 120, 0.45)';
+                for (let i = 0; i < 3; i++) {
+                    ctx.beginPath();
+                    ctx.arc(ballX - 14 - i * 8, 106 + i * 2, (4 - i) * sizeMul, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                break;
+            }
+            case 'train_frisbee': {
+                const flyX = 122 - animation.progress * 214;
+                const flyY = -42 - Math.sin(animation.progress * Math.PI) * 48;
+                ctx.save();
+                ctx.strokeStyle = 'rgba(251, 191, 36, 0.35)';
+                ctx.lineWidth = 4 * sizeMul;
+                ctx.beginPath();
+                ctx.moveTo(flyX + 24, flyY + 6);
+                ctx.quadraticCurveTo(flyX + 62, flyY - 10, flyX + 108, flyY + 18);
+                ctx.stroke();
+                ctx.restore();
+                this.drawEmoji('🥏', flyX, flyY, 32 * sizeMul, animation.progress * Math.PI * 8);
+                break;
+            }
+            case 'train_discipline':
+                ctx.strokeStyle = '#f59e0b';
+                ctx.lineWidth = 3 * sizeMul;
+                for (let i = 0; i < 3; i++) {
+                    ctx.beginPath();
+                    ctx.moveTo(headX + 14 * sizeMul + i * 10, headY - 46 * sizeMul + i * 3);
+                    ctx.lineTo(headX + 14 * sizeMul + i * 10, headY - 28 * sizeMul + i * 3);
+                    ctx.stroke();
+                }
+                ctx.fillStyle = 'rgba(245, 158, 11, 0.25)';
+                ctx.fillRect(headX + 42 * sizeMul, headY - 20 * sizeMul, 26 * sizeMul, 16 * sizeMul);
+                break;
+            case 'train_walk':
+                this.drawEmoji('👣', -40 + animation.progress * 80, 116, 28 * sizeMul, 0, 0.75);
+                this.drawEmoji('👣', -58 + animation.progress * 82, 108, 22 * sizeMul, 0, 0.45);
+                break;
+            case 'train_sing':
+                this.drawEmoji('🎵', headX + 52 * sizeMul, headY - 22 * sizeMul - animation.progress * 16, 24 * sizeMul, 0.12);
+                this.drawEmoji('🎶', headX + 78 * sizeMul, headY - 48 * sizeMul - animation.pulse * 10, 24 * sizeMul, -0.1, 0.9);
+                break;
+            case 'train_dance':
+                this.drawEmoji('🎵', headX + 56 * sizeMul, headY - 24 * sizeMul - animation.progress * 16, 24 * sizeMul, animation.sway * 0.2);
+                this.drawEmoji('✨', headX - 46 * sizeMul, headY - 18 * sizeMul - animation.bounce * 8, 20 * sizeMul, 0, 0.9);
+                this.drawEmoji('✨', headX + 84 * sizeMul, headY + 10 * sizeMul - animation.flutter * 6, 18 * sizeMul, 0, 0.85);
+                break;
+            case 'wash_face':
+                this.drawEmoji('🧽', headX + 48 * sizeMul, headY + animation.wiggle * 10, 26 * sizeMul, animation.sway * 0.14);
+                this.drawEmoji('🫧', headX + 10 * sizeMul, headY - 22 * sizeMul - animation.progress * 12, 18 * sizeMul, 0, 0.85);
+                this.drawEmoji('🫧', headX + 38 * sizeMul, headY - 10 * sizeMul - animation.pulse * 8, 14 * sizeMul, 0, 0.8);
+                break;
+            case 'wash_feet':
+                ctx.fillStyle = 'rgba(125, 211, 252, 0.68)';
+                for (let i = 0; i < 5; i++) {
+                    const splashX = -26 + i * 12;
+                    const splashY = 118 - Math.abs(Math.sin(animation.progress * Math.PI * 5 + i)) * 18;
+                    ctx.beginPath();
+                    ctx.arc(splashX, splashY, (i % 2 === 0 ? 3.5 : 2.5) * sizeMul, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                break;
+            case 'wash_body':
+                this.drawEmoji('🧼', bodyRadiusX * 0.52, 34 * sizeMul + animation.wiggle * 6, 28 * sizeMul, animation.sway * 0.12);
+                this.drawEmoji('🫧', 10 * sizeMul, 12 * sizeMul - animation.progress * 18, 18 * sizeMul, 0, 0.9);
+                this.drawEmoji('🫧', -28 * sizeMul, 28 * sizeMul - animation.pulse * 12, 16 * sizeMul, 0, 0.8);
+                break;
+            case 'wash_shower':
+                this.drawEmoji('🚿', -12, -104 * sizeMul, 30 * sizeMul);
+                ctx.fillStyle = '#7dd3fc';
+                for (let i = 0; i < 7; i++) {
+                    const dropX = -24 + i * 8;
+                    const dropY = -82 * sizeMul + ((animation.progress * 180 + i * 22) % 150);
+                    ctx.beginPath();
+                    ctx.arc(dropX, dropY, (i % 2 === 0 ? 3.2 : 2.4) * sizeMul, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                break;
+            case 'wash_bath':
+                this.drawEmoji('🫧', bodyRadiusX * 0.54, 16 - ((tickCount + 10) % 60), 18 * sizeMul, 0, 0.82);
+                this.drawEmoji('🫧', -bodyRadiusX * 0.3, 34 - ((tickCount + 34) % 56), 16 * sizeMul, 0, 0.76);
+                this.drawEmoji('🫧', bodyRadiusX * 0.08, 8 - ((tickCount + 22) % 54), 14 * sizeMul, 0, 0.7);
+                break;
+            case 'wash_mud':
+                ctx.fillStyle = 'rgba(120, 69, 41, 0.68)';
+                for (let i = 0; i < 6; i++) {
+                    ctx.beginPath();
+                    ctx.arc(
+                        -46 + i * 18 + animation.sway * 6,
+                        78 + Math.abs(Math.sin(animation.progress * Math.PI * 4 + i)) * 18,
+                        (i % 2 === 0 ? 5 : 3.5) * sizeMul,
+                        0,
+                        Math.PI * 2,
+                    );
+                    ctx.fill();
+                }
+                break;
+            case 'interact_praise':
+                this.drawHeart(headX + 14 * sizeMul, headY - 30 * sizeMul - animation.progress * 18, 16 * sizeMul, '#fb7185', 0.9);
+                this.drawHeart(headX + 42 * sizeMul, headY - 14 * sizeMul - animation.pulse * 14, 12 * sizeMul, '#f472b6', 0.8);
+                break;
+            case 'interact_scold':
+                this.drawScribble(headX + 44 * sizeMul, headY - 18 * sizeMul, 22 * sizeMul, '#ef4444');
+                break;
+            case 'interact_hospital':
+                ctx.save();
+                ctx.translate(headX + 60 * sizeMul, headY - 22 * sizeMul - animation.pulse * 6);
+                ctx.fillStyle = 'rgba(255,255,255,0.88)';
+                ctx.beginPath();
+                ctx.roundRect(-16 * sizeMul, -16 * sizeMul, 32 * sizeMul, 32 * sizeMul, 10 * sizeMul);
+                ctx.fill();
+                ctx.fillStyle = '#ef4444';
+                ctx.fillRect(-4 * sizeMul, -11 * sizeMul, 8 * sizeMul, 22 * sizeMul);
+                ctx.fillRect(-11 * sizeMul, -4 * sizeMul, 22 * sizeMul, 8 * sizeMul);
+                ctx.restore();
+                break;
+            case 'interact_pasture':
+                this.drawEmoji('🍃', -56 + animation.progress * 110, -28 - animation.pulse * 16, 24 * sizeMul, animation.sway * 0.2);
+                this.drawEmoji('🌼', 72 - animation.progress * 40, 88 - animation.bounce * 18, 22 * sizeMul, 0, 0.9);
+                break;
+        }
     }
 
     private darkenColor(color: string, percent: number): string {
@@ -180,26 +552,25 @@ export class CanvasRenderer {
         const ctx = this.ctx;
 
         if (et === 'open' || et === 'wide') {
-            const r = et === 'wide' ? 9 * s : 7.5 * s;
+            const r = et === 'wide' ? 9.6 * s : 8.6 * s;
             // Sclera
             ctx.fillStyle = '#ffffff';
             ctx.beginPath(); ctx.ellipse(x, y, r, r, 0, 0, Math.PI * 2); ctx.fill();
             // Iris
             ctx.fillStyle = '#2d3748';
-            ctx.beginPath(); ctx.arc(x + 0.8 * s, y + 0.8 * s, r * 0.68, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.arc(x + 0.5 * s, y + 0.9 * s, r * 0.62, 0, Math.PI * 2); ctx.fill();
             // Pupil shine (More refined position)
             ctx.fillStyle = '#ffffff';
-            ctx.beginPath(); ctx.arc(x + 1.5 * s, y - 2.5 * s, r * 0.3, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.arc(x + 1.2 * s, y - 2.9 * s, r * 0.28, 0, Math.PI * 2); ctx.fill();
             // Upper eyelid & Eyelashes
             ctx.strokeStyle = '#1e293b';
-            ctx.lineWidth = 1.8 * s;
+            ctx.lineWidth = 1.5 * s;
             ctx.lineCap = 'round';
             ctx.beginPath(); ctx.arc(x, y, r, Math.PI * 1.1, Math.PI * 1.9); ctx.stroke();
 
-            // 3 Small eyelashes
-            const lashLen = 4 * s;
-            for (let i = 0; i < 3; i++) {
-                const angle = Math.PI * 1.2 + (i * 0.25);
+            const lashLen = 3.2 * s;
+            for (let i = 0; i < 2; i++) {
+                const angle = Math.PI * 1.22 + (i * 0.42);
                 const ex = x + Math.cos(angle) * r;
                 const ey = y + Math.sin(angle) * r;
                 ctx.beginPath();
@@ -407,13 +778,15 @@ export class CanvasRenderer {
         }
 
         const state = petState;
-        const animId = this.fsm.activeAnimation?.id;
-        this.drawBackground(state, animId);
+        const now = Date.now();
+        const animation = this.getAnimationSnapshot(now);
+        this.drawBackground(state, tickCount, animation?.id);
 
         // ── Age calculations ──────────────────────────────────────────────
-        const ageYears = getAgeYears(this.fsm.stats.ageTicks);
+        const ageYears = getAgeYearsFromActiveSeconds(this.fsm.stats.ageTicks);
         const sizeMul = ageSizeMultiplier(ageYears);
         const roundness = headRoundness(ageYears);
+        const headSize = headSizeFactor(ageYears);
         const speedDiv = legSpeedDivisor(ageYears);
 
         // ── Base body dimensions ──────────────────────────────────────────
@@ -426,61 +799,183 @@ export class CanvasRenderer {
         const BASE_BRY = (48 + weightFactor * 12) * sizeMul;
 
         // ── Animation state (Tempo reduced by 50%: divisors doubled) ──
-        let breath = Math.sin(tickCount / 28) * 2;
-        let tailWag = state === 'Sleep' ? 0 : Math.sin(tickCount / 28) * 8;
+        let breath = Math.sin(tickCount / 42) * 1.35;
+        let tailWag = state === 'Sleep' ? 0 : Math.sin(tickCount / 40) * 5.5;
         let headOscillationX = 0;
         let headOscillationY = 0;
         let bodyOscillationY = 0;
+        let renderShiftX = 0;
         let isDancing = false;
         let isMouthOpen = false;
+        let animationExpression: ExpressionKey | null = null;
 
         // Blink timing: normal blink every ~5s, double-blink occasionally
         const blinkCycle = tickCount % 180;
         const isBlinking = blinkCycle < 5 || (blinkCycle > 10 && blinkCycle < 14);
 
-        if (this.fsm.activeAnimation) {
-            const animId = this.fsm.activeAnimation.id;
-            const progress = 1 - (this.fsm.activeAnimation.until - Date.now()) / 2000;
-
-            if (animId.startsWith('feed_')) {
-                headOscillationY = Math.sin(progress * Math.PI * 4) * 25;
-                isMouthOpen = (progress * 10) % 2 < 1;
-            } else if (animId === 'train_ball' || animId === 'train_frisbee') {
-                headOscillationY = -20 * sizeMul;
-                headOscillationX = 15 * sizeMul;
-            } else if (animId === 'train_dance') {
-                isDancing = true;
-                bodyOscillationY = Math.abs(Math.sin(progress * Math.PI * 6)) * -20;
-                headOscillationX = Math.sin(progress * Math.PI * 8) * 20;
-                tailWag = Math.sin(progress * Math.PI * 4) * 30;
-            } else if (animId === 'wash_shower' || animId === 'wash_bath') {
-                headOscillationX = Math.sin(progress * Math.PI * 6) * 10;
-                bodyOscillationY = Math.sin(progress * Math.PI * 4) * -5;
-            } else if (animId === 'train_walk' || animId === 'interact_pasture') {
-                bodyOscillationY = Math.abs(Math.sin(progress * Math.PI * 10)) * -10;
+        if (animation) {
+            switch (animation.id) {
+                case 'feed_fern':
+                    headOscillationY = 8 + animation.bounce * 18;
+                    headOscillationX = animation.sway * 5;
+                    isMouthOpen = animation.flutter > 0.35;
+                    tailWag = animation.wiggle * 14;
+                    animationExpression = 'playful';
+                    break;
+                case 'feed_conifer':
+                    headOscillationY = -18 * animation.pulse;
+                    headOscillationX = 24 * animation.pulse;
+                    renderShiftX = 8 * animation.pulse;
+                    bodyOscillationY = -6 * animation.pulse;
+                    isMouthOpen = animation.progress < 0.4 || animation.flutter > 0.5;
+                    tailWag = animation.sway * 16;
+                    animationExpression = 'excited';
+                    break;
+                case 'feed_vitamin':
+                    bodyOscillationY = -10 * animation.bounce;
+                    headOscillationY = -8 * animation.bounce;
+                    headOscillationX = animation.sway * 6;
+                    tailWag = animation.wiggle * 18;
+                    animationExpression = 'excited';
+                    break;
+                case 'feed_medicine': {
+                    const recoil = animation.progress < 0.35 ? Math.sin((animation.progress / 0.35) * Math.PI) : 0;
+                    const relief = animation.progress > 0.45 ? Math.sin(((animation.progress - 0.45) / 0.55) * Math.PI * 0.9) : 0;
+                    headOscillationX = -12 * recoil + 6 * relief;
+                    headOscillationY = -4 * recoil + 8 * relief;
+                    bodyOscillationY = 4 * recoil - 6 * relief;
+                    isMouthOpen = animation.progress > 0.24 && animation.progress < 0.58;
+                    animationExpression = recoil > 0.1 ? 'confused' : 'calm';
+                    break;
+                }
+                case 'feed_special':
+                    bodyOscillationY = -12 * animation.bounce;
+                    headOscillationY = -6 * animation.bounce;
+                    tailWag = animation.wiggle * 20;
+                    animationExpression = 'loving';
+                    break;
+                case 'train_ball':
+                    renderShiftX = (animation.progress * 2 - 1) * 20;
+                    bodyOscillationY = -18 * animation.bounce;
+                    headOscillationX = animation.sway * 14;
+                    headOscillationY = -12 * animation.bounce;
+                    tailWag = animation.wiggle * 24;
+                    animationExpression = 'excited';
+                    break;
+                case 'train_frisbee':
+                    renderShiftX = 18 * animation.pulse;
+                    bodyOscillationY = -24 * animation.pulse;
+                    headOscillationX = 22 * animation.pulse;
+                    headOscillationY = -20 * animation.pulse;
+                    tailWag = animation.sway * 26;
+                    animationExpression = 'excited';
+                    break;
+                case 'train_discipline':
+                    headOscillationY = Math.abs(animation.wiggle) * 12;
+                    bodyOscillationY = -4 * animation.pulse;
+                    tailWag = 0;
+                    animationExpression = 'thinking';
+                    break;
+                case 'train_walk':
+                    renderShiftX = animation.sway * 18;
+                    bodyOscillationY = -10 * animation.bounce;
+                    headOscillationX = animation.sway * 6;
+                    tailWag = animation.wiggle * 18;
+                    animationExpression = 'proud';
+                    break;
+                case 'train_sing':
+                    isDancing = true;
+                    bodyOscillationY = -8 * animation.bounce;
+                    headOscillationX = animation.sway * 10;
+                    headOscillationY = -4 * animation.pulse;
+                    isMouthOpen = true;
+                    tailWag = animation.wiggle * 16;
+                    animationExpression = 'loving';
+                    break;
+                case 'train_dance':
+                    isDancing = true;
+                    bodyOscillationY = -18 * animation.bounce;
+                    headOscillationX = animation.wiggle * 12;
+                    headOscillationY = -6 * animation.bounce;
+                    tailWag = animation.sway * 30;
+                    animationExpression = 'excited';
+                    break;
+                case 'wash_face':
+                    headOscillationX = animation.wiggle * 8;
+                    headOscillationY = 4 + animation.bounce * 8;
+                    animationExpression = 'shy';
+                    break;
+                case 'wash_feet':
+                    bodyOscillationY = -4 * animation.bounce;
+                    animationExpression = 'playful';
+                    break;
+                case 'wash_body':
+                    headOscillationX = animation.sway * 6;
+                    bodyOscillationY = -8 * animation.bounce;
+                    tailWag = animation.wiggle * 12;
+                    animationExpression = 'calm';
+                    break;
+                case 'wash_shower':
+                    headOscillationX = animation.wiggle * 7;
+                    bodyOscillationY = Math.sin(animation.progress * Math.PI * 6) * -4;
+                    animationExpression = 'shy';
+                    break;
+                case 'wash_bath':
+                    headOscillationX = animation.sway * 4;
+                    headOscillationY = -2 + animation.sway * 3;
+                    bodyOscillationY = 8 * animation.pulse;
+                    animationExpression = 'calm';
+                    break;
+                case 'wash_mud':
+                    headOscillationX = animation.sway * 10;
+                    bodyOscillationY = -10 * animation.bounce;
+                    tailWag = animation.wiggle * 22;
+                    animationExpression = 'smug';
+                    break;
+                case 'interact_praise':
+                    headOscillationY = -6 * animation.pulse;
+                    bodyOscillationY = -8 * animation.pulse;
+                    tailWag = animation.wiggle * 20;
+                    animationExpression = 'loving';
+                    break;
+                case 'interact_scold':
+                    headOscillationX = -animation.wiggle * 8;
+                    bodyOscillationY = 5 * animation.pulse;
+                    tailWag = 0;
+                    animationExpression = 'angry';
+                    break;
+                case 'interact_hospital':
+                    headOscillationY = -4 * animation.pulse;
+                    bodyOscillationY = -3 * animation.bounce;
+                    animationExpression = animation.progress < 0.45 ? 'worried' : 'calm';
+                    break;
+                case 'interact_pasture':
+                    renderShiftX = animation.sway * 24;
+                    bodyOscillationY = -10 * animation.bounce;
+                    headOscillationX = animation.sway * 8;
+                    tailWag = animation.wiggle * 18;
+                    animationExpression = 'excited';
+                    break;
             }
         } else if (state === 'Idle') {
             const isHighStat = this.fsm.stats.happiness >= 80 && this.fsm.stats.energy >= 80 && this.fsm.stats.fullness >= 80;
             if (isHighStat) {
-                isDancing = true;
-                bodyOscillationY = Math.abs(Math.sin(tickCount / 12)) * -15;
-                headOscillationX = Math.sin(tickCount / 8) * 15;
-                tailWag = Math.sin(tickCount / 12) * 20;
-                const cycle = Math.floor(tickCount / 560) % 5;
-                if (cycle === 1) headOscillationY = -10;
-                else if (cycle === 2) { headOscillationY = 20; headOscillationX = 10; breath = Math.sin(tickCount / 14) * 3; }
-                else if (cycle === 3) { headOscillationX = -20; }
-                else if (cycle === 4) headOscillationY = Math.sin(tickCount / 42) * 8;
+                bodyOscillationY = Math.sin(tickCount / 44) * -3.2;
+                headOscillationX = Math.sin(tickCount / 52) * 3.8;
+                headOscillationY = Math.cos(tickCount / 60) * 2.4;
+                tailWag = Math.sin(tickCount / 34) * 8;
+                breath = Math.sin(tickCount / 48) * 1.6;
             }
         }
 
         // ── Canvas transform ──────────────────────────────────────────────
         this.ctx.save();
         const currentWanderX = this.fsm.wanderX || 0;
-        const renderX = this.width / 2 + currentWanderX;
-        const flipH = !this.fsm.activeAnimation && this.fsm.wanderTargetX < this.fsm.wanderX;
+        const renderX = this.width / 2 + currentWanderX + renderShiftX;
+        const flipH = !animation && this.fsm.wanderTargetX < this.fsm.wanderX;
 
-        this.ctx.translate(renderX, this.height / 2 + breath + bodyOscillationY);
+        const stageGroundY = this.height * 0.72;
+        this.ctx.translate(renderX, stageGroundY + breath + bodyOscillationY);
         if (flipH) this.ctx.scale(-1, 1);
 
         // ── Body color by state ───────────────────────────────────────────
@@ -503,24 +998,24 @@ export class CanvasRenderer {
 
         // Neck length & head position scale with age
         const neckLen = (60 + tier * 35) * sizeMul;
-        const headX = (32 + headOscillationX) * sizeMul;
+        const headX = (28 + headOscillationX) * sizeMul;
         const headY = -neckLen + headOscillationY;
 
         // Head shape: younger = rounder
-        const headRX = 26 * sizeMul;
+        const headRX = 26 * sizeMul * headSize;
         const headRY = headRX * roundness;
-        const snoutRX = 22 * sizeMul;
-        const snoutRY = 14 * sizeMul * roundness;
+        const snoutRX = 17 * sizeMul * Math.max(0.92, headSize * 0.9);
+        const snoutRY = 11.5 * sizeMul * Math.max(0.92, roundness * 0.96);
 
         // Face scale for expressions
-        const faceScale = sizeMul;
+        const faceScale = sizeMul * Math.max(1.1, headSize * 0.94);
 
         // Eye positions
-        const eye1X = headX - 5 * sizeMul;
-        const eye2X = headX + 14 * sizeMul;
-        const eyeY = headY - 5 * sizeMul;
-        const mouthX = headX + 8 * sizeMul;
-        const mouthY = headY + 12 * sizeMul;
+        const eye1X = headX - 12 * sizeMul;
+        const eye2X = headX + 10 * sizeMul;
+        const eyeY = headY - 7 * sizeMul;
+        const mouthX = headX - 1 * sizeMul;
+        const mouthY = headY + 14 * sizeMul;
 
         // ── Shadow ────────────────────────────────────────────────────────
         this.ctx.fillStyle = 'rgba(0,0,0,0.10)';
@@ -552,7 +1047,7 @@ export class CanvasRenderer {
         this.drawDirtSpot((headX - 8 * sizeMul) / 2, (headY + 14 * sizeMul + 35 * sizeMul) / 2, 13, 22, this.fsm.stats.spotDirt.neck, 'neck');
 
         // ─── Bath prop ────────────────────────────────────────────────────
-        if (this.fsm.activeAnimation?.id === 'wash_bath') {
+        if (animation?.id === 'wash_bath') {
             this.ctx.fillStyle = '#e0f2fe';
             this.ctx.beginPath();
             this.ctx.rect(-bodyRadiusX - 10, 28 * sizeMul, bodyRadiusX * 2 + 20, 38 * sizeMul);
@@ -605,24 +1100,43 @@ export class CanvasRenderer {
         // ─── 5. FRONT LEGS ────────────────────────────────────────────────
         // Leg animation
         let legOffset1 = 0, legOffset2 = 0;
-        if (this.fsm.activeAnimation) {
-            const animId = this.fsm.activeAnimation.id;
-            const progress = 1 - (this.fsm.activeAnimation.until - Date.now()) / 2000;
-            if (animId === 'train_walk' || animId === 'interact_pasture') {
-                legOffset1 = Math.sin(progress * Math.PI * 10) * 14;
-                legOffset2 = Math.cos(progress * Math.PI * 10) * 14;
-            } else if (animId === 'train_ball') {
-                legOffset2 = -18;
+        if (animation) {
+            switch (animation.id) {
+                case 'train_walk':
+                case 'interact_pasture':
+                    legOffset1 = Math.sin(animation.progress * Math.PI * 8) * 14;
+                    legOffset2 = Math.cos(animation.progress * Math.PI * 8) * 14;
+                    break;
+                case 'train_ball':
+                    legOffset1 = Math.sin(animation.progress * Math.PI * 6) * 8;
+                    legOffset2 = -18 * animation.pulse;
+                    break;
+                case 'train_frisbee':
+                    legOffset1 = -14 * animation.pulse;
+                    legOffset2 = -8 * animation.pulse;
+                    break;
+                case 'train_discipline':
+                    legOffset1 = Math.abs(Math.sin(animation.progress * Math.PI * 4)) * 5;
+                    legOffset2 = Math.abs(Math.cos(animation.progress * Math.PI * 4)) * 3;
+                    break;
+                case 'wash_feet':
+                    if (animation.progress < 0.5) legOffset1 = -14 * Math.abs(Math.sin(animation.progress * Math.PI * 4));
+                    else legOffset2 = -14 * Math.abs(Math.sin(animation.progress * Math.PI * 4));
+                    break;
+                case 'wash_mud':
+                    legOffset1 = Math.sin(animation.progress * Math.PI * 6) * 10;
+                    legOffset2 = Math.cos(animation.progress * Math.PI * 6) * 10;
+                    break;
             }
         } else if (Math.abs(this.fsm.wanderTargetX - this.fsm.wanderX) > 1) {
-            legOffset1 = Math.sin(tickCount / speedDiv) * 14;
-            legOffset2 = Math.cos(tickCount / speedDiv) * 14;
+            legOffset1 = Math.sin(tickCount / speedDiv) * 8.5;
+            legOffset2 = Math.cos(tickCount / speedDiv) * 8.5;
         } else if (state === 'Idle') {
             const mood = (this.fsm.stats.happiness + this.fsm.stats.energy) / 200;
             if (mood > 0.7) {
                 const stompSpeed = speedDiv * 1.4; // slightly slower than walk
-                legOffset1 = Math.sin(tickCount / stompSpeed) * (4 + mood * 4);
-                legOffset2 = Math.cos(tickCount / stompSpeed) * (4 + mood * 4);
+                legOffset1 = Math.sin(tickCount / stompSpeed) * (2.5 + mood * 2.2);
+                legOffset2 = Math.cos(tickCount / stompSpeed) * (2.5 + mood * 2.2);
             }
         }
 
@@ -642,23 +1156,38 @@ export class CanvasRenderer {
         this.ctx.beginPath();
         this.ctx.ellipse(headX, headY, headRX, headRY, 0.1, 0, Math.PI * 2);
         this.ctx.fill();
-        // Snout – wider when young (cute pug), flatter when older
+        const headHighlight = this.ctx.createRadialGradient(
+            headX - 10 * sizeMul,
+            headY - 14 * sizeMul,
+            4 * sizeMul,
+            headX - 6 * sizeMul,
+            headY - 10 * sizeMul,
+            headRX * 0.95,
+        );
+        headHighlight.addColorStop(0, 'rgba(255,255,255,0.34)');
+        headHighlight.addColorStop(1, 'rgba(255,255,255,0)');
+        this.ctx.fillStyle = headHighlight;
         this.ctx.beginPath();
-        this.ctx.ellipse(headX + 17 * sizeMul, headY + 7 * sizeMul, snoutRX, snoutRY, 0.15, 0, Math.PI * 2);
+        this.ctx.ellipse(headX - 1 * sizeMul, headY - 2 * sizeMul, headRX * 0.92, headRY * 0.9, 0, 0, Math.PI * 2);
+        this.ctx.fill();
+        // Snout – wider when young (cute pug), flatter when older
+        this.ctx.fillStyle = bodyColor;
+        this.ctx.beginPath();
+        this.ctx.ellipse(headX + 13 * sizeMul, headY + 7 * sizeMul, snoutRX, snoutRY, 0.08, 0, Math.PI * 2);
         this.ctx.fill();
         // Cheek bulge (cute)
         this.ctx.fillStyle = lightColor;
-        this.ctx.globalAlpha = 0.35;
+        this.ctx.globalAlpha = 0.38;
         this.ctx.beginPath();
-        this.ctx.ellipse(headX + 5 * sizeMul, headY + 10 * sizeMul, 12 * sizeMul, 9 * sizeMul, 0, 0, Math.PI * 2);
+        this.ctx.ellipse(headX + 1 * sizeMul, headY + 12 * sizeMul, 16 * sizeMul, 11 * sizeMul, 0, 0, Math.PI * 2);
         this.ctx.fill();
         this.ctx.globalAlpha = 1;
         // Nostril
         this.ctx.fillStyle = darkColor;
         this.ctx.beginPath();
-        this.ctx.ellipse(headX + 28 * sizeMul, headY + 4 * sizeMul, 3.5 * sizeMul, 2.5 * sizeMul, 0.3, 0, Math.PI * 2);
+        this.ctx.ellipse(headX + 23 * sizeMul, headY + 5 * sizeMul, 2.5 * sizeMul, 2 * sizeMul, 0.2, 0, Math.PI * 2);
         this.ctx.fill();
-        this.drawDirtSpot(headX + 5 * sizeMul, headY + 3 * sizeMul, 30 * sizeMul, 20 * sizeMul, this.fsm.stats.spotDirt.head, 'head');
+        this.drawDirtSpot(headX + 3 * sizeMul, headY + 4 * sizeMul, 32 * sizeMul, 24 * sizeMul, this.fsm.stats.spotDirt.head, 'head');
 
         // Wisdom Crown
         if (tier === 3 && this.fsm.stats.wisdom > 10) {
@@ -697,6 +1226,10 @@ export class CanvasRenderer {
             else exprKey = 'bored';
         }
 
+        if (animationExpression) {
+            exprKey = animationExpression;
+        }
+
         // Dirty state also shows flies
         if (state === 'Dirty') {
             this.ctx.fillStyle = '#475569';
@@ -707,46 +1240,14 @@ export class CanvasRenderer {
         this.renderFace(exprKey, headX, headY, eye1X, eye2X, eyeY, mouthX, mouthY, faceScale, isBlinking);
 
         // Dancing music note
-        if (isDancing && tickCount % 35 === 0) {
+        if (isDancing && !animation && tickCount % 35 === 0) {
             this.ctx.font = `${20 * sizeMul}px Arial`;
             this.ctx.fillText('🎵', headX + 28 * sizeMul, headY - 10 * sizeMul);
         }
 
         // ─── 8. FOREGROUND ANIMATION PROPS ───────────────────────────────
-        if (this.fsm.activeAnimation) {
-            const animId = this.fsm.activeAnimation.id;
-            const progress = 1 - (this.fsm.activeAnimation.until - Date.now()) / 2000;
-            this.ctx.font = '40px Arial';
-
-            if (animId === 'feed_fern') this.ctx.fillText('🌿', headX + 32 * sizeMul, headY + 20 * sizeMul + Math.sin(progress * Math.PI * 4) * 10);
-            else if (animId === 'feed_conifer') this.ctx.fillText('🌲', headX + 32 * sizeMul, headY + 20 * sizeMul + Math.sin(progress * Math.PI * 4) * 10);
-            else if (animId === 'feed_vitamin') this.ctx.fillText('🍋', headX + 32 * sizeMul, headY + 20 * sizeMul + Math.sin(progress * Math.PI * 4) * 10);
-            else if (animId === 'feed_medicine') this.ctx.fillText('💊', headX + 32 * sizeMul, headY + 20 * sizeMul + Math.sin(progress * Math.PI * 4) * 10);
-            else if (animId === 'train_ball') {
-                const bounceY = Math.abs(Math.sin(progress * Math.PI * 3)) * -60;
-                this.ctx.fillText('⚽', 80 + progress * 100, 60 + bounceY);
-            } else if (animId === 'train_frisbee') {
-                const flyX = 200 - progress * 150;
-                const flyY = -50 + Math.sin(progress * Math.PI) * 20;
-                this.ctx.save();
-                this.ctx.translate(flyX, flyY);
-                this.ctx.rotate(progress * Math.PI * 4);
-                this.ctx.fillText('🥏', 0, 0);
-                this.ctx.restore();
-            } else if (animId === 'wash_shower') {
-                this.ctx.fillText('🚿', -20, -100 * sizeMul);
-                this.ctx.fillStyle = '#bae6fd';
-                for (let i = 0; i < 5; i++) {
-                    const dropY = -80 * sizeMul + ((progress * 150 + i * 20) % 150);
-                    this.ctx.beginPath();
-                    this.ctx.arc((Math.random() - 0.5) * 40, dropY, 3, 0, Math.PI * 2);
-                    this.ctx.fill();
-                }
-            } else if (animId === 'wash_bath') {
-                this.ctx.font = '20px Arial';
-                this.ctx.fillText('🫧', bodyRadiusX * 0.5 + Math.sin(tickCount / 5) * 5, 10 - (tickCount % 50));
-                this.ctx.fillText('🫧', -bodyRadiusX * 0.3 + Math.cos(tickCount / 4) * 5, 30 - ((tickCount + 20) % 50));
-            }
+        if (animation) {
+            this.drawActionProps(animation, tickCount, sizeMul, headX, headY, bodyRadiusX);
         }
 
         this.ctx.restore();

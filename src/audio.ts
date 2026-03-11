@@ -1,16 +1,25 @@
 export class AudioManager {
     private ctx: AudioContext | null = null;
     private initialized = false;
+    private bgm: HTMLAudioElement | null = null;
+    private bgmStarted = false;
 
     public init() {
-        if (this.initialized) return;
-        try {
-            const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-            this.ctx = new AudioContextClass();
-            this.initialized = true;
-        } catch (e) {
-            console.warn('Web Audio API not supported');
+        if (!this.initialized) {
+            try {
+                const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+                this.ctx = new AudioContextClass();
+                this.initialized = true;
+            } catch (e) {
+                console.warn('Web Audio API not supported');
+            }
         }
+
+        this.ensureBackgroundMusic();
+        if (this.ctx && this.ctx.state === 'suspended') {
+            this.ctx.resume();
+        }
+        this.playBackgroundMusic();
     }
 
     private playTone(freq: number, type: OscillatorType, dur: number, vol: number = 0.1) {
@@ -65,6 +74,32 @@ export class AudioManager {
 
     public playPop() {
         this.playTone(800, 'sine', 0.1, 0.08);
+    }
+
+    private ensureBackgroundMusic() {
+        if (this.bgm) return;
+
+        this.bgm = new Audio(new URL('../background.mp3', import.meta.url).href);
+        this.bgm.loop = true;
+        this.bgm.preload = 'auto';
+        this.bgm.volume = 0.3;
+
+        document.addEventListener('visibilitychange', () => {
+            if (!this.bgm) return;
+            if (document.visibilityState === 'hidden') {
+                this.bgm.pause();
+            } else if (this.bgmStarted) {
+                this.playBackgroundMusic();
+            }
+        });
+    }
+
+    private playBackgroundMusic() {
+        if (!this.bgm) return;
+        this.bgmStarted = true;
+        this.bgm.play().catch(() => {
+            this.bgmStarted = false;
+        });
     }
 }
 
