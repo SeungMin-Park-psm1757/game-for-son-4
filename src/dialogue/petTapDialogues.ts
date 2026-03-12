@@ -18,6 +18,8 @@ interface PetTapDialogue {
     maxEnergy?: number;
     minCleanliness?: number;
     maxCleanliness?: number;
+    minBond?: number;
+    maxBond?: number;
     lastActions?: string[];
 }
 
@@ -45,6 +47,11 @@ const generalTalks: PetTapDialogue[] = [
     talk('general_weather_meteor', '하늘에서 반짝이는 게 보여. 별똥별이 쏟아지는 날인가 봐!', { weathers: ['MeteorShower'] }),
     talk('general_weather_drought', '공기가 바삭바삭해. 오늘은 물이 더 반갑다.', { weathers: ['Drought'] }),
     talk('general_weather_ash', '하늘빛이 묵직해 보여. 코끝에 먼지가 닿는 느낌이야.', { weathers: ['VolcanicAsh'] }),
+    talk('general_bond_reserved_1', '네 손길이 조금씩 익숙해지고 있어.', { maxBond: 19 }),
+    talk('general_bond_growing_1', '요즘은 네가 오면 긴장이 조금 덜해.', { minBond: 20, maxBond: 44 }),
+    talk('general_bond_trusting_1', '네가 곁에 있으면 마음이 먼저 편안해져.', { minBond: 45, maxBond: 69 }),
+    talk('general_bond_deep_1', '네가 보이면 바로 안심돼. 오늘도 와 줘서 고마워.', { minBond: 70 }),
+    talk('general_bond_deep_2', '이제는 네 옆이 제일 좋아하는 자리야.', { minBond: 70, minHappiness: 55 }),
     talk('general_after_fern', '양치식물은 향이 부드러워서 먹고 나면 기분이 편안해져.', { lastActions: ['feed_fern'] }),
     talk('general_after_conifer', '침엽수는 향이 진해. 오래 씹으면 조금 텁텁하기도 해.', { lastActions: ['feed_conifer'] }),
     talk('general_after_wash', '물방울이 반짝반짝 튀는 느낌이 아직 남아 있어.', { lastActions: ['wash_face', 'wash_feet', 'wash_shower', 'wash_bath'] }),
@@ -187,6 +194,8 @@ function matches(entry: PetTapDialogue, context: DialogueContext): boolean {
     if (entry.maxEnergy !== undefined && context.stats.energy > entry.maxEnergy) return false;
     if (entry.minCleanliness !== undefined && context.stats.cleanliness < entry.minCleanliness) return false;
     if (entry.maxCleanliness !== undefined && context.stats.cleanliness > entry.maxCleanliness) return false;
+    if (entry.minBond !== undefined && context.bond < entry.minBond) return false;
+    if (entry.maxBond !== undefined && context.bond > entry.maxBond) return false;
     if (entry.lastActions && !entry.lastActions.some((action) => context.lastActions.includes(action))) return false;
     return true;
 }
@@ -232,6 +241,7 @@ export function getPetTapPattern(context: DialogueContext, nowMs: number = Date.
         Math.floor(context.stats.fullness / 10),
         Math.floor(context.stats.energy / 10),
         Math.floor(context.stats.cleanliness / 10),
+        Math.floor(context.bond / 10),
     ].join(':'));
     const rand = mulberry32(seed);
     const poolSize = 3 + Math.floor(rand() * 3);
@@ -255,7 +265,7 @@ export function getPetTapPattern(context: DialogueContext, nowMs: number = Date.
     }
 
     return {
-        patternKey: `${bucket}:${context.personality}:${context.weather}:${context.fsmState}`,
+        patternKey: `${bucket}:${context.personality}:${context.weather}:${context.fsmState}:${Math.floor(context.bond / 10)}`,
         lines: selected.map((entry) => entry.text),
     };
 }

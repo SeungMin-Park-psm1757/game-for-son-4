@@ -7,6 +7,21 @@ import {
     getEvolutionTierFromActiveSeconds,
     getNextGrowthMilestone,
 } from './growth';
+import {
+    type GameMoment,
+    type OnboardingMissionId,
+    type RewardBundle,
+    applyRewardBundle,
+    describeRewardBundle,
+    getBondDeltaForActionId,
+    getBondMemoryReason,
+    getBondTitle,
+    getGrowthReward,
+    getLatestBondMilestone,
+    getNextOnboardingMission,
+    pickDailyGift,
+    pickGentleEvent,
+} from './progression';
 
 export type PetState = 'Idle' | 'Hungry' | 'Dirty' | 'Sleepy' | 'Sleep' | 'Quiz' | 'Sick' | 'Naughty';
 
@@ -70,6 +85,18 @@ export interface PetStats {
     pmStats: { athletics: number; intellect: number; elegance: number; discipline: number; charm: number; health: number };
     gameLastPlayedMs: Record<string, number>; // per-game 4h cooldown timestamps
     mathQuizTier: number; // persisted DDA tier for math quiz
+    bond: number;
+    memories: string[];
+    progress: {
+        onboardingCompleted: OnboardingMissionId[];
+        growthRewardClaimedTiers: number[];
+        lastDailyGiftDate: string;
+        lastRandomEventDate: string;
+        lastBondMilestone: number;
+    };
+    preferences: {
+        comfortMode: boolean;
+    };
 
     // Counter system for trait unlocks
     actionCounts: {
@@ -125,6 +152,18 @@ export class FSM {
         pmStats: { athletics: 0, intellect: 0, elegance: 0, discipline: 0, charm: 0, health: 0 },
         gameLastPlayedMs: {},
         mathQuizTier: 0,
+        bond: 0,
+        memories: [],
+        progress: {
+            onboardingCompleted: [],
+            growthRewardClaimedTiers: [],
+            lastDailyGiftDate: '',
+            lastRandomEventDate: '',
+            lastBondMilestone: 0,
+        },
+        preferences: {
+            comfortMode: false,
+        },
         actionCounts: {
             bath: 0,
             wash: 0,
@@ -148,6 +187,7 @@ export class FSM {
     public eventEndTime: number = 0;
 
     public isEvolutionTriggered: boolean = false;
+    public pendingMoments: GameMoment[] = [];
 
     // Animation States
     public activeAnimation: ActiveAnimation | null = null;
@@ -190,6 +230,24 @@ export class FSM {
             if (!this.stats.pmStats) this.stats.pmStats = { athletics: 0, intellect: 0, elegance: 0, discipline: 0, charm: 0, health: 0 };
             if (!this.stats.gameLastPlayedMs) this.stats.gameLastPlayedMs = {};
             if (this.stats.mathQuizTier === undefined) this.stats.mathQuizTier = 0;
+            if (this.stats.bond === undefined) this.stats.bond = 0;
+            if (!this.stats.memories) this.stats.memories = [];
+            if (!this.stats.progress) {
+                this.stats.progress = {
+                    onboardingCompleted: [],
+                    growthRewardClaimedTiers: [],
+                    lastDailyGiftDate: '',
+                    lastRandomEventDate: '',
+                    lastBondMilestone: 0,
+                };
+            }
+            if (!this.stats.progress.onboardingCompleted) this.stats.progress.onboardingCompleted = [];
+            if (!this.stats.progress.growthRewardClaimedTiers) this.stats.progress.growthRewardClaimedTiers = [];
+            if (this.stats.progress.lastDailyGiftDate === undefined) this.stats.progress.lastDailyGiftDate = '';
+            if (this.stats.progress.lastRandomEventDate === undefined) this.stats.progress.lastRandomEventDate = '';
+            if (this.stats.progress.lastBondMilestone === undefined) this.stats.progress.lastBondMilestone = 0;
+            if (!this.stats.preferences) this.stats.preferences = { comfortMode: false };
+            if (this.stats.preferences.comfortMode === undefined) this.stats.preferences.comfortMode = false;
             // Hydrate new passive traits
             if (this.stats.scaleScutes === undefined) this.stats.scaleScutes = false;
             if (this.stats.thickSkin === undefined) this.stats.thickSkin = false;
@@ -208,6 +266,10 @@ export class FSM {
             this.applyOfflineTime(Date.now()); // Reverted to original call as per analysis
         } else {
             this.lastPlayString = new Date().toDateString();
+        }
+
+        if (this.stats.introSeen) {
+            this.ensureDailyGift(new Date().toDateString());
         }
     }
 
@@ -240,6 +302,36 @@ export class FSM {
 
     public getNextGrowthMilestone() {
         return getNextGrowthMilestone(this.stats.ageTicks);
+    }
+
+    public consumeMoment() {
+        return this.pendingMoments.shift() ?? null;
+    }
+
+    public publishMoment(moment: GameMoment) {
+        this.queueMoment({
+            ...moment,
+            rewardText: moment.rewardText ?? (moment.reward ? describeRewardBundle(moment.reward) : ''),
+        });
+    }
+
+    public getNextOnboardingMission() {
+        return getNextOnboardingMission(this.stats.progress.onboardingCompleted);
+    }
+
+    public getBondTitle() {
+        return getBondTitle(this.stats.bond);
+    }
+
+    public isComfortModeEnabled() {
+        return !!this.stats.preferences?.comfortMode;
+    }
+
+    public setComfortMode(enabled: boolean) {
+        if (!this.stats.preferences) {
+            this.stats.preferences = { comfortMode: false };
+        }
+        this.stats.preferences.comfortMode = enabled;
     }
 
     public skipActiveAnimation() {
@@ -308,6 +400,7 @@ export class FSM {
         const retainedUnlockedPersonalities = this.stats.unlockedPersonalities;
         const retainedUnlockedItems = this.stats.unlockedItems;
         const retainedGraveyard = this.stats.graveyardRecords;
+        const retainedPreferences = this.stats.preferences;
 
         this.stats = {
             ...new FSM().stats, // get default
@@ -316,6 +409,7 @@ export class FSM {
             unlockedPersonalities: retainedUnlockedPersonalities,
             unlockedItems: retainedUnlockedItems,
             graveyardRecords: retainedGraveyard,
+            preferences: retainedPreferences,
             bornAtMs: Date.now(),
             spotDirt: { head: 0, neck: 0, body: 0, legs: 0, tail: 0 },
             pmStats: { athletics: 0, intellect: 0, elegance: 0, discipline: 0, charm: 0, health: 0 },
@@ -347,8 +441,14 @@ export class FSM {
         this.stats.ageTicks = 0;
         this.stats.evolutionTier = 0;
         this.lastTick = Date.now();
+        this.stats.bond = 5;
+        this.stats.memories = [];
+        this.stats.progress.onboardingCompleted = [];
+        this.stats.progress.lastBondMilestone = 0;
         this.stats.inventory['feed_fern'] = 5;
         this.stats.inventory['train_ball'] = 1;
+        this.addMemory(`${this.stats.name || '브라키오'}와 처음 눈을 맞췄어요.`);
+        this.ensureDailyGift(new Date().toDateString());
         this.evaluateState();
     }
 
@@ -380,6 +480,136 @@ export class FSM {
             HOOKS.onStatChanged({ stat: stat as string, delta: amount, newValue, reason: 'decay/action' });
         }
         (this.stats as any)[stat] = newValue;
+    }
+
+    private queueMoment(moment: GameMoment) {
+        this.pendingMoments.push(moment);
+    }
+
+    private addMemory(memory: string) {
+        const trimmed = memory.trim();
+        if (!trimmed) return;
+        this.stats.memories = [trimmed, ...this.stats.memories.filter((entry) => entry !== trimmed)].slice(0, 6);
+    }
+
+    private grantBundle(reward: RewardBundle) {
+        applyRewardBundle(this.stats, reward);
+    }
+
+    private createMoment(id: string, icon: string, title: string, body: string, theme: GameMoment['theme'], reward?: RewardBundle) {
+        this.publishMoment({
+            id,
+            icon,
+            title,
+            body,
+            theme,
+            reward,
+            rewardText: reward ? describeRewardBundle(reward) : '',
+        });
+    }
+
+    private changeBond(amount: number, reason: string) {
+        if (amount === 0) return;
+        const previousMilestone = this.stats.progress.lastBondMilestone;
+        this.stats.bond = Math.max(0, Math.min(100, this.stats.bond + amount));
+
+        const milestone = getLatestBondMilestone(previousMilestone, this.stats.bond);
+        if (!milestone) return;
+
+        this.stats.progress.lastBondMilestone = milestone.threshold;
+        this.addMemory(`${milestone.title} · ${reason}`);
+        this.createMoment(
+            `bond-${milestone.threshold}-${Date.now()}`,
+            milestone.icon,
+            milestone.title,
+            milestone.description,
+            'rose',
+        );
+    }
+
+    private completeOnboardingMission(actionId: string) {
+        const mission = this.getNextOnboardingMission();
+        if (!mission || !mission.triggerActionIds.includes(actionId)) return;
+
+        this.stats.progress.onboardingCompleted.push(mission.id);
+        this.grantBundle(mission.reward);
+        this.addMemory(`${mission.title}을(를) 해냈어요.`);
+        this.createMoment(
+            `mission-${mission.id}-${Date.now()}`,
+            mission.icon,
+            `${mission.title} 완료`,
+            mission.description,
+            'emerald',
+            mission.reward,
+        );
+
+        if (!this.getNextOnboardingMission()) {
+            const finalReward: RewardBundle = { gold: 40, amber: 2, bond: 6 };
+            this.grantBundle(finalReward);
+            this.addMemory('처음 함께한 돌봄 루틴을 모두 마쳤어요.');
+            this.createMoment(
+                `mission-finish-${Date.now()}`,
+                '🎉',
+                '첫날 돌봄을 모두 마쳤어요',
+                '브라키오가 이제 당신 곁을 한결 편안하게 느끼고 있어요.',
+                'indigo',
+                finalReward,
+            );
+        }
+    }
+
+    private maybeTriggerGentleEvent(actionId: string) {
+        if (this.getNextOnboardingMission()) return;
+
+        const today = new Date().toDateString();
+        if (this.stats.progress.lastRandomEventDate === today) return;
+        if (Math.random() > 0.32) return;
+
+        const month = new Date().getMonth() + 1;
+        const seasonKey = month >= 3 && month <= 5
+            ? 'Spring'
+            : month >= 6 && month <= 8
+                ? 'Summer'
+                : month >= 9 && month <= 11
+                    ? 'Autumn'
+                    : 'Winter';
+
+        const event = pickGentleEvent(`${today}:${actionId}:${this.stats.name || 'brachio'}`, {
+            season: seasonKey,
+            hour: new Date().getHours(),
+            actionId,
+        });
+
+        if (!event) return;
+
+        this.stats.progress.lastRandomEventDate = today;
+        this.grantBundle(event.reward);
+        this.addMemory(event.memory);
+        this.createMoment(
+            `gentle-${event.id}-${today}`,
+            event.icon,
+            event.title,
+            event.description,
+            'sky',
+            event.reward,
+        );
+    }
+
+    private ensureDailyGift(today: string) {
+        if (!this.stats.introSeen || this.stats.progress.lastDailyGiftDate === today) return;
+
+        const gift = pickDailyGift(`${today}:${this.stats.name || 'brachio'}`);
+        this.stats.progress.lastDailyGiftDate = today;
+        this.grantBundle(gift.reward);
+        this.addMemory(gift.memory);
+        this.createMoment(
+            `daily-gift-${gift.id}-${today}`,
+            gift.icon,
+            gift.title,
+            gift.description,
+            'amber',
+            gift.reward,
+        );
     }
 
     private applyOfflineTime(currentNow: number) {
@@ -422,6 +652,7 @@ export class FSM {
                 }
             }
             this.lastPlayString = todayStr;
+            this.ensureDailyGift(todayStr);
         }
 
         const modes = this.checkSpecialModes();
@@ -603,6 +834,20 @@ export class FSM {
 
         if (this.stats.evolutionTier > oldTier) {
             this.isEvolutionTriggered = true;
+            const reward = getGrowthReward(this.stats.evolutionTier);
+            if (reward && !this.stats.progress.growthRewardClaimedTiers.includes(reward.tier)) {
+                this.stats.progress.growthRewardClaimedTiers.push(reward.tier);
+                this.grantBundle(reward.reward);
+                this.addMemory(reward.memory);
+                this.createMoment(
+                    `growth-${reward.tier}-${Date.now()}`,
+                    reward.icon,
+                    reward.title,
+                    reward.description,
+                    'amber',
+                    reward.reward,
+                );
+            }
         }
     }
 
@@ -668,6 +913,7 @@ export class FSM {
 
     public rewardAmber(amount: number) { this.stats.amber += amount; }
     public rewardGold(amount: number) { this.stats.gold += amount; }
+    public rewardBond(amount: number, reason: string) { this.changeBond(amount, reason); }
 
     public performSpecificAction(actionId: string): { success: boolean, msg: string, react?: string } {
         let res: { success: boolean, msg: string, react?: string } = { success: false, msg: '알 수 없는 상호작용이야!' };
@@ -952,6 +1198,12 @@ export class FSM {
 
         if (res.success) {
             HOOKS.onActionPerformed(actionId, { timestamp: Date.now() });
+            this.changeBond(
+                getBondDeltaForActionId(actionId, { isSleeping: this.isSleeping }),
+                getBondMemoryReason(actionId, this.stats.name || '브라키오'),
+            );
+            this.completeOnboardingMission(actionId);
+            this.maybeTriggerGentleEvent(actionId);
 
             // Trigger animation
             const startedAt = Date.now();

@@ -28,6 +28,16 @@ interface AnimationSnapshot {
     flutter: number;
 }
 
+interface PoseProfile {
+    neckScale: number;
+    bodyScaleY: number;
+    headOffsetX: number;
+    headOffsetY: number;
+    bodyOffsetY: number;
+    tailExtra: number;
+    expression?: ExpressionKey;
+}
+
 const EXPRESSIONS: Record<ExpressionKey, Expression> = {
     happy: { eyeType: 'open', mouthType: 'smile', blush: true, blushColor: '#fca5a5' },
     excited: { eyeType: 'star', mouthType: 'bigSmile', blush: true, blushColor: '#fb923c' },
@@ -231,6 +241,66 @@ export class CanvasRenderer {
 
     private clamp(value: number, min: number, max: number) {
         return Math.min(max, Math.max(min, value));
+    }
+
+    private getMotionFactor() {
+        return this.fsm.stats.preferences?.comfortMode ? 0.55 : 1;
+    }
+
+    private getPoseProfile(state: PetState, tickCount: number): PoseProfile {
+        const bond = this.fsm.stats.bond;
+        const sway = Math.sin(tickCount / 92);
+        const float = Math.cos(tickCount / 76);
+
+        switch (state) {
+            case 'Hungry':
+                return { neckScale: 0.94, bodyScaleY: 0.96, headOffsetX: -6, headOffsetY: 14, bodyOffsetY: 4, tailExtra: -4, expression: 'hungry' };
+            case 'Dirty':
+                return { neckScale: 0.97, bodyScaleY: 1, headOffsetX: 2 + sway, headOffsetY: 6, bodyOffsetY: 2, tailExtra: -2, expression: 'worried' };
+            case 'Sleepy':
+                return { neckScale: 0.92, bodyScaleY: 0.95, headOffsetX: -4, headOffsetY: 14 + float * 2, bodyOffsetY: 4, tailExtra: -4, expression: 'sleepy' };
+            case 'Sleep':
+                return { neckScale: 0.86, bodyScaleY: 0.92, headOffsetX: -12, headOffsetY: 18, bodyOffsetY: 6, tailExtra: -6, expression: 'tired' };
+            case 'Sick':
+                return { neckScale: 0.9, bodyScaleY: 0.94, headOffsetX: -5, headOffsetY: 16, bodyOffsetY: 6, tailExtra: -5, expression: bond >= 45 ? 'sad' : 'sick' };
+            case 'Naughty':
+                return { neckScale: 1.04, bodyScaleY: 1.03, headOffsetX: 4 + sway * 2, headOffsetY: -4, bodyOffsetY: -2, tailExtra: 4, expression: bond >= 45 ? 'smug' : 'angry' };
+            case 'Idle':
+                if (bond >= 70) {
+                    return { neckScale: 1.04, bodyScaleY: 1.02, headOffsetX: sway * 3, headOffsetY: -5 + float * 2, bodyOffsetY: -2, tailExtra: 4, expression: this.fsm.stats.happiness >= 60 ? 'loving' : 'calm' };
+                }
+                if (bond >= 45) {
+                    return { neckScale: 1.01, bodyScaleY: 1.01, headOffsetX: sway * 2, headOffsetY: -2 + float, bodyOffsetY: -1, tailExtra: 2, expression: this.fsm.stats.happiness >= 70 ? 'happy' : 'calm' };
+                }
+                if (bond < 20) {
+                    return { neckScale: 0.98, bodyScaleY: 0.98, headOffsetX: -2 + sway, headOffsetY: 2, bodyOffsetY: 1, tailExtra: -2, expression: this.fsm.stats.happiness >= 45 ? 'shy' : 'confused' };
+                }
+                return { neckScale: 1, bodyScaleY: 1, headOffsetX: sway, headOffsetY: float, bodyOffsetY: 0, tailExtra: 0 };
+            default:
+                return { neckScale: 1, bodyScaleY: 1, headOffsetX: 0, headOffsetY: 0, bodyOffsetY: 0, tailExtra: 0 };
+        }
+    }
+
+    private getIdleExpression(tickCount: number, isMouthOpen: boolean): ExpressionKey {
+        const happiness = this.fsm.stats.happiness;
+        const bond = this.fsm.stats.bond;
+
+        if (isMouthOpen) {
+            return bond >= 45 ? 'loving' : 'playful';
+        }
+        if (bond >= 70 && happiness >= 60) {
+            return tickCount % 240 < 120 ? 'loving' : 'happy';
+        }
+        if (bond >= 45 && happiness >= 55) {
+            return happiness >= 80 ? 'happy' : 'calm';
+        }
+        if (bond < 20 && happiness >= 45) {
+            return 'shy';
+        }
+        if (happiness >= 90) return 'excited';
+        if (happiness >= 75) return 'happy';
+        if (happiness >= 50) return 'calm';
+        return 'bored';
     }
 
     private getAnimationSnapshot(now: number): AnimationSnapshot | null {
@@ -801,8 +871,11 @@ export class CanvasRenderer {
 
         const state = petState;
         const now = Date.now();
+        const comfortMode = this.fsm.stats.preferences?.comfortMode ?? false;
+        const motionFactor = this.getMotionFactor();
+        const motionTick = comfortMode ? tickCount * 0.6 : tickCount;
         const animation = this.getAnimationSnapshot(now);
-        this.drawBackground(state, tickCount, animation?.id);
+        this.drawBackground(state, motionTick, animation?.id);
 
         // ── Age calculations ──────────────────────────────────────────────
         const ageYears = getAgeYearsFromActiveSeconds(this.fsm.stats.ageTicks);
@@ -821,8 +894,8 @@ export class CanvasRenderer {
         const BASE_BRY = (48 + weightFactor * 12) * sizeMul;
 
         // ── Animation state (Tempo reduced by 50%: divisors doubled) ──
-        let breath = Math.sin(tickCount / 42) * 1.35;
-        let tailWag = state === 'Sleep' ? 0 : Math.sin(tickCount / 40) * 5.5;
+        let breath = Math.sin(motionTick / 42) * 1.35;
+        let tailWag = state === 'Sleep' ? 0 : Math.sin(motionTick / 40) * 5.5;
         let headOscillationX = 0;
         let headOscillationY = 0;
         let bodyOscillationY = 0;
@@ -832,7 +905,7 @@ export class CanvasRenderer {
         let animationExpression: ExpressionKey | null = null;
 
         // Blink timing: normal blink every ~5s, double-blink occasionally
-        const blinkCycle = tickCount % 180;
+        const blinkCycle = motionTick % (comfortMode ? 240 : 180);
         const isBlinking = blinkCycle < 5 || (blinkCycle > 10 && blinkCycle < 14);
 
         if (animation) {
@@ -982,13 +1055,26 @@ export class CanvasRenderer {
         } else if (state === 'Idle') {
             const isHighStat = this.fsm.stats.happiness >= 80 && this.fsm.stats.energy >= 80 && this.fsm.stats.fullness >= 80;
             if (isHighStat) {
-                bodyOscillationY = Math.sin(tickCount / 44) * -3.2;
-                headOscillationX = Math.sin(tickCount / 52) * 3.8;
-                headOscillationY = Math.cos(tickCount / 60) * 2.4;
-                tailWag = Math.sin(tickCount / 34) * 8;
-                breath = Math.sin(tickCount / 48) * 1.6;
+                bodyOscillationY = Math.sin(motionTick / 44) * -3.2;
+                headOscillationX = Math.sin(motionTick / 52) * 3.8;
+                headOscillationY = Math.cos(motionTick / 60) * 2.4;
+                tailWag = Math.sin(motionTick / 34) * 8;
+                breath = Math.sin(motionTick / 48) * 1.6;
             }
         }
+
+        const poseProfile = this.getPoseProfile(state, motionTick);
+        headOscillationX += poseProfile.headOffsetX;
+        headOscillationY += poseProfile.headOffsetY;
+        bodyOscillationY += poseProfile.bodyOffsetY;
+        tailWag += poseProfile.tailExtra;
+
+        breath *= comfortMode ? 0.72 : 1;
+        tailWag *= motionFactor;
+        headOscillationX *= motionFactor;
+        headOscillationY *= motionFactor;
+        bodyOscillationY *= motionFactor;
+        renderShiftX *= motionFactor;
 
         // ── Canvas transform ──────────────────────────────────────────────
         this.ctx.save();
@@ -1016,10 +1102,10 @@ export class CanvasRenderer {
 
         // ── Geometry ──────────────────────────────────────────────────────
         const bodyRadiusX = BASE_BRX;
-        const bodyRadiusY = BASE_BRY;
+        const bodyRadiusY = BASE_BRY * poseProfile.bodyScaleY;
 
         // Neck length & head position scale with age
-        const neckLen = (60 + tier * 35) * sizeMul;
+        const neckLen = (60 + tier * 35) * sizeMul * poseProfile.neckScale;
         const headX = (28 + headOscillationX) * sizeMul;
         const headY = -neckLen + headOscillationY;
 
@@ -1151,16 +1237,19 @@ export class CanvasRenderer {
                     break;
             }
         } else if (Math.abs(this.fsm.wanderTargetX - this.fsm.wanderX) > 1) {
-            legOffset1 = Math.sin(tickCount / speedDiv) * 8.5;
-            legOffset2 = Math.cos(tickCount / speedDiv) * 8.5;
+            legOffset1 = Math.sin(motionTick / speedDiv) * 8.5;
+            legOffset2 = Math.cos(motionTick / speedDiv) * 8.5;
         } else if (state === 'Idle') {
             const mood = (this.fsm.stats.happiness + this.fsm.stats.energy) / 200;
             if (mood > 0.7) {
                 const stompSpeed = speedDiv * 1.4; // slightly slower than walk
-                legOffset1 = Math.sin(tickCount / stompSpeed) * (2.5 + mood * 2.2);
-                legOffset2 = Math.cos(tickCount / stompSpeed) * (2.5 + mood * 2.2);
+                legOffset1 = Math.sin(motionTick / stompSpeed) * (2.5 + mood * 2.2);
+                legOffset2 = Math.cos(motionTick / stompSpeed) * (2.5 + mood * 2.2);
             }
         }
+
+        legOffset1 *= motionFactor;
+        legOffset2 *= motionFactor;
 
         const fLegX1 = -bodyRadiusX * 0.42 - 7 * sizeMul;
         const fLegY1 = 65 * sizeMul + (legOffset1 < 0 ? legOffset1 : 0);
@@ -1231,7 +1320,7 @@ export class CanvasRenderer {
             exprKey = 'tired';
             this.ctx.font = `${20 * sizeMul}px Arial`;
             this.ctx.fillStyle = '#64748b';
-            const zzzOffset = Math.sin(tickCount / 20) * 5;
+            const zzzOffset = Math.sin(motionTick / 20) * 5;
             this.ctx.fillText('Zzz', 0, headY - 30 * sizeMul + zzzOffset);
         } else if (state === 'Hungry') exprKey = 'hungry';
         else if (state === 'Dirty') exprKey = 'worried';
@@ -1239,30 +1328,26 @@ export class CanvasRenderer {
         else if (state === 'Sick') exprKey = 'sick';
         else if (state === 'Sleepy') exprKey = 'sleepy';
         else {
-            // Happy / Idle - richer variation based on stats
-            const h = this.fsm.stats.happiness;
-            if (isMouthOpen) exprKey = 'playful';
-            else if (h >= 90) exprKey = 'excited';
-            else if (h >= 75) exprKey = 'happy';
-            else if (h >= 50) exprKey = 'calm';
-            else exprKey = 'bored';
+            exprKey = this.getIdleExpression(motionTick, isMouthOpen);
         }
 
         if (animationExpression) {
             exprKey = animationExpression;
+        } else if (poseProfile.expression) {
+            exprKey = poseProfile.expression;
         }
 
         // Dirty state also shows flies
         if (state === 'Dirty') {
             this.ctx.fillStyle = '#475569';
-            this.ctx.fillRect(-30 + (tickCount % 15), -40 * sizeMul - (tickCount % 10), 3, 3);
-            this.ctx.fillRect(20 - (tickCount % 12), -50 * sizeMul + (tickCount % 14), 3, 3);
+            this.ctx.fillRect(-30 + (motionTick % 15), -40 * sizeMul - (motionTick % 10), 3, 3);
+            this.ctx.fillRect(20 - (motionTick % 12), -50 * sizeMul + (motionTick % 14), 3, 3);
         }
 
         this.renderFace(exprKey, headX, headY, eye1X, eye2X, eyeY, mouthX, mouthY, faceScale, isBlinking);
 
         // Dancing music note
-        if (isDancing && !animation && tickCount % 35 === 0) {
+        if (isDancing && !animation && motionTick % 35 === 0) {
             this.ctx.font = `${20 * sizeMul}px Arial`;
             this.ctx.fillText('🎵', headX + 28 * sizeMul, headY - 10 * sizeMul);
         }

@@ -33,6 +33,10 @@
               🔔
             </button>
 
+            <button id="btn-comfort-mode" class="icon-chip text-[0.72rem] font-black tracking-[-0.02em]" title="편안 모드 꺼짐" aria-label="편안 모드 켜기" aria-pressed="false">
+              Aa
+            </button>
+
             <button id="btn-currency" class="currency-card" aria-label="상점 열기">
               <div class="currency-row"><span>💰</span><span id="stat-gold">0</span></div>
               <div class="currency-row"><span>💎</span><span id="stat-amber">0</span></div>
@@ -42,6 +46,7 @@
         </div>
 
         <div class="mt-4 flex flex-wrap gap-2">
+          <div id="bond-badge" class="status-chip status-chip-rose">하트 0 · 낯선 친구</div>
           <div id="pet-age-pill" class="status-chip status-chip-mint">0살</div>
           <div id="stage-badge" class="status-chip status-chip-sand">아기</div>
           <div id="season-badge" class="status-chip status-chip-sky">봄</div>
@@ -58,6 +63,21 @@
           </div>
           <div class="growth-track mt-2">
             <div id="growth-progress" class="growth-fill" style="width: 0%"></div>
+          </div>
+        </div>
+
+        <div id="care-focus-panel" class="care-focus-panel mt-4 hidden">
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <p id="care-focus-kicker" class="care-focus-kicker">첫날 안내</p>
+              <h3 id="care-focus-title" class="care-focus-title">작은 돌봄부터 시작해요</h3>
+              <p id="care-focus-desc" class="care-focus-desc">브라키오와 친해질 첫 행동을 하나 해 보세요.</p>
+            </div>
+            <span id="care-focus-status" class="care-focus-status">진행 중</span>
+          </div>
+          <div class="mt-3 flex items-center justify-between gap-3">
+            <span id="care-focus-reward" class="care-focus-reward">보상 · 20G</span>
+            <span id="care-focus-progress" class="care-focus-progress">1 / 4</span>
           </div>
         </div>
 

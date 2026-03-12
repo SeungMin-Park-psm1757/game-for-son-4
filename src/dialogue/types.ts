@@ -4,8 +4,10 @@ export interface DialogueFollowUp {
 }
 
 export interface DialogueContext {
+    petName: string;
     personality: string;
     fsmState: string;
+    bond: number;
     stats: {
         fullness: number;
         energy: number;
@@ -16,6 +18,7 @@ export interface DialogueContext {
     season: '🌸 봄' | '☀️ 여름' | '🍂 가을' | '❄️ 겨울' | string;
     weather: 'None' | 'Drought' | 'MeteorShower' | 'VolcanicAsh' | string;
     lastActions: string[];
+    comfortMode: boolean;
     isInOverlay: boolean; // if true, bubble shouldn't show or should be very low priority
 }
 

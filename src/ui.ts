@@ -17,6 +17,7 @@ import type { MinigameId } from './minigames/MinigameInterface';
 import { MG_BALANCE } from './minigameBalance';
 import { MathQuizEngine, MathQuestion, MATH_QUIZ_GOLD, MATH_QUIZ_AMBER_BONUS } from './MathQuiz';
 import { getActiveSecondsForAge } from './growth';
+import { describeRewardBundle, type GameMoment } from './progression';
 
 export type UIOverlayState = 'NONE' | 'SUBMENU' | 'SHOP' | 'QUIZ' | 'ARBEIT' | 'ENCYCLOPEDIA' | 'MINIGAME' | 'CANVAS_MG' | 'INTRO' | 'DEATH';
 
@@ -65,6 +66,8 @@ export class UIManager {
 
     private dialogueManager: DialogueManager;
     private speechBubble!: HTMLElement;
+    private momentOverlay!: HTMLElement;
+    private activeMomentId: string | null = null;
     private bubbleHideTimer: any = null;
     private lastFsmState: string = 'Idle';
     private lastUiTime: number;
@@ -102,9 +105,11 @@ export class UIManager {
         this.initShopEvents();
         this.initArbeitEvents();
         this.initNotifications();
+        this.initComfortMode();
         this.initHUDButtons();
         this.initIntroEvents();
         this.initAnimationSkip();
+        this.applyComfortMode();
 
         const encOverlay = document.getElementById('encyclopedia-overlay');
         if (encOverlay) {
@@ -135,6 +140,7 @@ export class UIManager {
         this.dialogueManager = new DialogueManager();
         this.lastUiTime = performance.now();
         this.initSpeechBubble();
+        this.initMomentOverlay();
         this.initDeathOverlay();
 
         HOOKS.subscribeAction((actionId) => {
@@ -220,6 +226,41 @@ export class UIManager {
         document.getElementById('btn-close-submenu')?.addEventListener('click', () => {
             this.switchOverlay('NONE');
         });
+    }
+
+    private initComfortMode() {
+        const btn = document.getElementById('btn-comfort-mode');
+        if (!btn) return;
+
+        btn.addEventListener('click', () => {
+            this.toggleComfortMode();
+        });
+    }
+
+    private toggleComfortMode() {
+        const next = !this.fsm.isComfortModeEnabled();
+        this.fsm.setComfortMode(next);
+        this.applyComfortMode();
+        this.update();
+
+        if (this.currentOverlay === 'ENCYCLOPEDIA') {
+            this.openEncyclopedia();
+        }
+
+        this.showToast(next ? '편안 모드를 켰어요. 글자가 조금 커지고 움직임이 잔잔해져요.' : '편안 모드를 껐어요.');
+    }
+
+    private applyComfortMode() {
+        const enabled = this.fsm.isComfortModeEnabled();
+        document.body.classList.toggle('comfort-mode', enabled);
+
+        const btn = document.getElementById('btn-comfort-mode');
+        if (btn) {
+            btn.classList.toggle('icon-chip-active', enabled);
+            btn.setAttribute('aria-pressed', String(enabled));
+            btn.setAttribute('aria-label', enabled ? '편안 모드 끄기' : '편안 모드 켜기');
+            btn.setAttribute('title', enabled ? '편안 모드 켜짐' : '편안 모드 꺼짐');
+        }
     }
 
     private initAnimationSkip() {
@@ -362,10 +403,91 @@ export class UIManager {
         if (growthProgressEl) growthProgressEl.setAttribute('style', `width: ${Math.max(0, Math.min(100, progress))}%`);
     }
 
+    private updateCareFocusPanel() {
+        const panel = document.getElementById('care-focus-panel');
+        if (!panel) return;
+
+        const kicker = document.getElementById('care-focus-kicker');
+        const title = document.getElementById('care-focus-title');
+        const desc = document.getElementById('care-focus-desc');
+        const reward = document.getElementById('care-focus-reward');
+        const status = document.getElementById('care-focus-status');
+        const progress = document.getElementById('care-focus-progress');
+        const nextMission = this.fsm.getNextOnboardingMission();
+
+        if (nextMission) {
+            panel.classList.remove('hidden');
+            if (kicker) kicker.textContent = '첫날 안내';
+            if (title) title.textContent = nextMission.title;
+            if (desc) desc.textContent = nextMission.description;
+            if (reward) reward.textContent = `보상 · ${describeRewardBundle(nextMission.reward)}`;
+            if (status) status.textContent = '진행 중';
+            if (progress) progress.textContent = `완료 ${this.fsm.stats.progress.onboardingCompleted.length} / 4`;
+            return;
+        }
+
+        panel.classList.remove('hidden');
+        if (kicker) kicker.textContent = '요즘 마음';
+        if (title) title.textContent = this.fsm.getBondTitle();
+        if (desc) desc.textContent = this.fsm.stats.memories[0] || '오늘도 브라키오와 조용한 하루를 보내고 있어요.';
+        if (reward) reward.textContent = `유대감 · 하트 ${this.fsm.stats.bond}`;
+        if (status) status.textContent = '안정적';
+        if (progress) progress.textContent = `기억 ${Math.max(1, this.fsm.stats.memories.length)}장`;
+    }
+
+    private formatDurationLabelKr(seconds: number) {
+        const totalMinutes = Math.max(0, Math.ceil(seconds / 60));
+        const hours = Math.floor(totalMinutes / 60);
+        const minutes = totalMinutes % 60;
+
+        if (hours > 0 && minutes > 0) return `${hours}시간 ${minutes}분`;
+        if (hours > 0) return `${hours}시간`;
+        return `${Math.max(1, minutes)}분`;
+    }
+
+    private getStageLabelKr() {
+        const stages = ['아기', '어린', '청소년', '어른'];
+        return stages[this.fsm.stats.evolutionTier] || '어른';
+    }
+
+    private getSeasonLabelKr() {
+        const m = new Date().getMonth() + 1;
+        if (m >= 3 && m <= 5) return '봄';
+        if (m >= 6 && m <= 8) return '여름';
+        if (m >= 9 && m <= 11) return '가을';
+        return '겨울';
+    }
+
+    private getStateBannerText() {
+        const name = this.fsm.stats.name || '브라키오';
+        const affectionate = this.fsm.stats.bond >= 45;
+
+        switch (this.fsm.currentState) {
+            case 'Idle':
+                return affectionate ? `${name}가 네 곁이라 편안해해요 💛` : `${name}가 오늘도 기분 좋아 보여요 🌿`;
+            case 'Hungry':
+                return `${name}가 배고파 보여요 🌿`;
+            case 'Dirty':
+                return `${name}를 씻겨 주면 다시 반짝일 수 있어요 🚿`;
+            case 'Sleepy':
+                return `${name}가 졸려서 눈을 비비고 있어요 🌙`;
+            case 'Sleep':
+                return `${name}가 쿨쿨 자라는 중이에요 😴`;
+            case 'Quiz':
+                return `${name}가 열심히 일하는 중이에요 ✏️`;
+            case 'Naughty':
+                return `${name}가 조금 심통났어요 💢`;
+            case 'Sick':
+                return `${name}의 몸 상태를 챙겨 주세요 💊`;
+            default:
+                return `${name}와 함께 있어요`;
+        }
+    }
+
     public showToast(msg: string) {
         const container = document.getElementById('toast-container')!;
         const t = document.createElement('div');
-        t.className = 'mx-auto mb-2 flex w-max max-w-full justify-center rounded-full border border-white/70 bg-slate-900/86 px-4 py-2 text-center text-[13px] font-bold text-white shadow-lg backdrop-blur transition-all';
+        t.className = 'toast-bubble mx-auto mb-2 flex w-max max-w-full justify-center rounded-full border border-white/70 bg-slate-900/86 px-4 py-2 text-center text-[13px] font-bold text-white shadow-lg backdrop-blur transition-all';
         t.innerText = msg;
         container.appendChild(t);
         setTimeout(() => {
@@ -660,6 +782,44 @@ export class UIManager {
     private openEncyclopedia() {
         const encOverlay = document.getElementById('encyclopedia-overlay')!;
         const encContent = document.getElementById('enc-content')!;
+        const comfortEnabled = this.fsm.isComfortModeEnabled();
+        const memories = this.fsm.stats.memories.length
+            ? this.fsm.stats.memories.map((memory) => `<li class="rounded-2xl bg-white px-3 py-2 text-[11px] font-semibold text-slate-600 shadow-sm">${memory}</li>`).join('')
+            : '<li class="rounded-2xl bg-white px-3 py-2 text-[11px] font-semibold text-slate-500 shadow-sm">아직 특별한 순간이 쌓이는 중이에요.</li>';
+
+        const comfortHtml = `
+        <section class="mb-5">
+          <h3 class="mb-3 flex items-center gap-1 text-sm font-black text-slate-700">🌿 편안 모드</h3>
+          <div class="rounded-[1.6rem] border border-emerald-100 bg-[linear-gradient(180deg,#f3fff9_0%,#ffffff_100%)] p-4 shadow-sm">
+            <div class="flex items-center justify-between gap-3">
+              <div>
+                <p class="text-[11px] font-black uppercase tracking-[0.18em] text-emerald-500">Comfort</p>
+                <h4 class="mt-1 text-base font-black tracking-[-0.04em] text-slate-900">${comfortEnabled ? '차분한 접근성 모드 사용 중' : '기본 보기 모드'}</h4>
+              </div>
+              <button id="btn-toggle-comfort-mode" class="overlay-pill ${comfortEnabled ? 'overlay-pill-emerald' : 'overlay-pill-slate'}">${comfortEnabled ? '끄기' : '켜기'}</button>
+            </div>
+            <p class="mt-3 text-[11px] font-semibold leading-5 text-slate-600">작은 글자를 조금 키우고, 떠다니는 움직임과 흔들림을 줄여 더 편안하게 볼 수 있게 해 줘요.</p>
+          </div>
+        </section>`;
+
+        const bondHtml = `
+        <section class="mb-5">
+          <h3 class="mb-3 flex items-center gap-1 text-sm font-black text-slate-700">💛 유대감</h3>
+          <div class="rounded-[1.6rem] border border-rose-100 bg-[linear-gradient(180deg,#fff7fb_0%,#ffffff_100%)] p-4 shadow-sm">
+            <div class="flex items-center justify-between gap-3">
+              <div>
+                <p class="text-[11px] font-black uppercase tracking-[0.18em] text-rose-400">Bond</p>
+                <h4 class="mt-1 text-lg font-black tracking-[-0.04em] text-slate-900">${this.fsm.getBondTitle()}</h4>
+              </div>
+              <span class="rounded-full bg-rose-50 px-3 py-1 text-xs font-black text-rose-600">하트 ${this.fsm.stats.bond}</span>
+            </div>
+            <div class="mt-3 h-3 overflow-hidden rounded-full bg-rose-100">
+              <div class="h-full rounded-full bg-[linear-gradient(90deg,#fb7185,#f472b6)]" style="width:${this.fsm.stats.bond}%"></div>
+            </div>
+            <p class="mt-3 text-[11px] font-semibold leading-5 text-slate-600">${this.fsm.stats.name || '브라키오'}와 쌓인 마음의 온도를 보여 줘요. 다정한 돌봄과 함께 놀아 주는 시간이 유대감을 키웁니다.</p>
+            <ul class="mt-4 flex flex-col gap-2">${memories}</ul>
+          </div>
+        </section>`;
 
         // Build PM Stats section
         const pm = this.fsm.stats.pmStats;
@@ -742,7 +902,11 @@ export class UIManager {
           </div>
         </section>`;
 
-        encContent.innerHTML = pmHtml + personalitiesHtml + passivesHtml;
+        encContent.innerHTML = comfortHtml + bondHtml + pmHtml + personalitiesHtml + passivesHtml;
+
+        document.getElementById('btn-toggle-comfort-mode')?.addEventListener('click', () => {
+            this.toggleComfortMode();
+        });
 
         encOverlay.classList.remove('hidden');
         encOverlay.classList.add('flex');
@@ -974,6 +1138,7 @@ export class UIManager {
     private finishMathQuizEarly() {
         if (this.mathGoldEarned > 0) {
             this.fsm.rewardGold(this.mathGoldEarned);
+            this.fsm.rewardBond(2, '함께 수학 문제를 풀었어요.');
             this.shopSystem.recordGoldEarned(this.mathGoldEarned);
             this.showToast(`수학 알바 완료! 💰+${this.mathGoldEarned}`);
         } else {
@@ -1058,11 +1223,12 @@ export class UIManager {
                 // 3콤보 달성! 세션 종료
                 this.fsm.rewardGold(this.mathGoldEarned);
                 this.fsm.rewardAmber(MATH_QUIZ_AMBER_BONUS);
+                this.fsm.rewardBond(4, '함께 수학 알바를 끝까지 해냈어요.');
                 this.shopSystem.recordGoldEarned(this.mathGoldEarned);
                 this.fsm.stats.mathQuizTier = this.mathQuizEngine.getTier();
                 this.fsm.recordGamePlayed('math_quiz');
                 this.update();
-                alert(`수학 알바 완료!\n💰 ${this.mathGoldEarned} 획득\n💎 ${MATH_QUIZ_AMBER_BONUS} 보너스`);
+                this.showToast(`수학 알바 완료! 💰 ${this.mathGoldEarned} · 💎 ${MATH_QUIZ_AMBER_BONUS}`);
                 this.mathQuizEngine = null;
                 this.mathCurrentQ = null;
                 this.mathCombo = 0;
@@ -1105,6 +1271,11 @@ export class UIManager {
             if (dRes) this.showDialogue(dRes);
         }
 
+        if (!this.activeMomentId && this.currentOverlay === 'NONE') {
+            const moment = this.fsm.consumeMoment();
+            if (moment) this.showMomentOverlay(moment);
+        }
+
         // General update
         if (now - this.lastStateTextUpdate > 5000) {
             this.lastStateTextUpdate = now;
@@ -1134,6 +1305,15 @@ export class UIManager {
         this.goldElement.innerText = Math.floor(s.gold).toString();
         this.medicineElement.innerText = Math.floor(s.medicine).toString();
         this.updateGrowthPanel();
+        const nextMilestone = this.fsm.getNextGrowthMilestone();
+        document.getElementById('pet-age-pill')!.textContent = `${this.fsm.getDisplayAgeYears()}살`;
+        document.getElementById('stage-badge')!.textContent = `${this.getStageLabelKr()} 단계`;
+        document.getElementById('season-badge')!.textContent = this.getSeasonLabelKr();
+        document.getElementById('growth-caption')!.textContent = this.fsm.getDisplayAgeYears() < 2 ? '첫 성장까지' : '다음 성장까지';
+        document.getElementById('growth-next')!.textContent = `${nextMilestone.ageYears}살까지 ${this.formatDurationLabelKr(nextMilestone.secondsUntil)}`;
+        document.getElementById('bond-badge')!.textContent = `하트 ${s.bond} · ${this.fsm.getBondTitle()}`;
+        document.getElementById('bond-badge')!.classList.remove('hidden');
+        this.updateCareFocusPanel();
 
         if (this.animationSkipButton) {
             const showSkip = !!this.fsm.activeAnimation && this.currentOverlay === 'NONE';
@@ -1178,9 +1358,20 @@ export class UIManager {
             if (result.happiness) rewardStrs.push(`🌿${result.happiness > 0 ? '+' : ''}${result.happiness}`);
             if (result.wisdom) rewardStrs.push(`🧠+${result.wisdom}`);
 
-            setTimeout(() => {
-                alert(`[방목 귀환] ${result.msg}\n${rewardStrs.length > 0 ? '보상: ' + rewardStrs.join(', ') : ''}`);
-            }, 100);
+            this.fsm.publishMoment({
+                id: `pasture-return-${Date.now()}`,
+                icon: '🌿',
+                title: '방목에서 돌아왔어요',
+                body: result.msg,
+                theme: 'sky',
+                reward: {
+                    amber: result.amber,
+                    gold: result.gold,
+                    happiness: result.happiness,
+                },
+                rewardText: rewardStrs.join(' · '),
+                trackGoldEarned: false,
+            });
         }
 
         // Sleep Alert
@@ -1198,11 +1389,7 @@ export class UIManager {
             this.fsm.isEvolutionTriggered = false; // consume trigger
             AUDIO.playSuccess();
             AUDIO.playSuccess();
-            setTimeout(() => {
-                alert(`✨ 축하합니다! 브라키오가 ${this.fsm.stats.evolutionTier}단계로 진화했습니다! ✨\n더 크게 쑥쑥 자랐어요!`);
-            }, 500);
-
-            // Sparkle reactions
+            this.showToast(`${this.fsm.stats.name || '브라키오'}가 ${this.fsm.stats.evolutionTier}단계로 자랐어요!`);
             for (let i = 0; i < 5; i++) {
                 setTimeout(() => this.showReaction('✨'), i * 200);
             }
@@ -1213,16 +1400,7 @@ export class UIManager {
             petNameHeader.textContent = s.name || '브라키오';
         }
 
-        switch (this.fsm.currentState) {
-            case 'Idle': this.stateTextElement.innerText = '오늘도 기분 최고! 🌿'; break;
-            case 'Hungry': this.stateTextElement.innerText = '배가 고파요... 🌿'; break;
-            case 'Dirty': this.stateTextElement.innerText = '씻겨 주면 다시 반짝일 수 있어요 🚿'; break;
-            case 'Sleepy': this.stateTextElement.innerText = '졸려서 눈이 감겨요 🌙'; break;
-            case 'Sleep': this.stateTextElement.innerText = '쿨쿨 자라는 중... 😴'; break;
-            case 'Quiz': this.stateTextElement.innerText = '열심히 일하는 중! ✏️'; break;
-            case 'Naughty': this.stateTextElement.innerText = '지금은 조금 심통났어요 💢'; break;
-            case 'Sick': this.stateTextElement.innerText = '몸이 안 좋아요... 💊'; break;
-        }
+        this.stateTextElement.innerText = this.getStateBannerText();
     }
 
     private initArbeitEvents() {
@@ -1338,6 +1516,7 @@ export class UIManager {
             this.canvasMgRunner.start(game, canvas, timerEl, titleEl, (result) => {
                 this.fsm.rewardGold(result.goldEarned);
                 if (result.amberEarned > 0) this.fsm.rewardAmber(result.amberEarned);
+                this.fsm.rewardBond(3, '함께 미니게임을 즐겼어요.');
                 this.shopSystem.recordGoldEarned(result.goldEarned);
                 this.fsm.recordGamePlayed(gameId); // 4-hour cooldown
                 this.update();
@@ -1465,6 +1644,91 @@ export class UIManager {
         document.getElementById('app')!.appendChild(this.speechBubble);
     }
 
+    private initMomentOverlay() {
+        this.momentOverlay = document.createElement('div');
+        this.momentOverlay.id = 'moment-overlay';
+        this.momentOverlay.className = 'absolute inset-0 z-[95] hidden items-center justify-center bg-slate-950/32 px-5 backdrop-blur-sm';
+        this.momentOverlay.innerHTML = `
+      <div id="moment-card" class="max-h-[82vh] w-full max-w-sm overflow-y-auto rounded-[2rem] border border-white/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.99),rgba(249,250,255,0.96))] p-5 shadow-[0_24px_48px_rgba(28,33,56,0.18)]">
+        <div class="flex items-start justify-between gap-3">
+          <div class="flex items-start gap-3">
+            <div id="moment-icon" class="flex h-14 w-14 items-center justify-center rounded-[1.25rem] bg-indigo-50 text-3xl shadow-inner">✨</div>
+            <div class="min-w-0">
+              <p id="moment-kicker" class="text-[11px] font-black uppercase tracking-[0.18em] text-indigo-500">특별한 순간</p>
+              <h3 id="moment-title" class="mt-1 text-[1.15rem] font-black tracking-[-0.04em] text-slate-900">새로운 순간</h3>
+            </div>
+          </div>
+          <button id="btn-close-moment" class="sheet-close-btn shrink-0">닫기</button>
+        </div>
+        <p id="moment-body" class="mt-4 text-[13px] font-semibold leading-6 text-slate-600">브라키오와 함께 작은 순간이 쌓였어요.</p>
+        <div id="moment-reward" class="mt-4 hidden rounded-[1.25rem] border border-indigo-100 bg-indigo-50/90 px-4 py-3 text-sm font-black text-indigo-700"></div>
+        <button id="btn-confirm-moment" class="moment-action-btn mt-5">좋아, 기억할게</button>
+      </div>
+    `;
+
+        const close = () => this.hideMomentOverlay();
+        this.momentOverlay.querySelector('#btn-close-moment')?.addEventListener('click', close);
+        this.momentOverlay.querySelector('#btn-confirm-moment')?.addEventListener('click', close);
+        this.momentOverlay.addEventListener('click', (event) => {
+            if (event.target === this.momentOverlay) close();
+        });
+
+        document.getElementById('app')!.appendChild(this.momentOverlay);
+    }
+
+    private getMomentTheme(moment: GameMoment) {
+        switch (moment.theme) {
+            case 'amber':
+                return { kicker: '성장 선물', iconBg: 'bg-amber-50', rewardBg: 'border-amber-100 bg-amber-50/90 text-amber-700' };
+            case 'emerald':
+                return { kicker: '돌봄 진전', iconBg: 'bg-emerald-50', rewardBg: 'border-emerald-100 bg-emerald-50/90 text-emerald-700' };
+            case 'rose':
+                return { kicker: '마음 연결', iconBg: 'bg-rose-50', rewardBg: 'border-rose-100 bg-rose-50/90 text-rose-700' };
+            case 'sky':
+                return { kicker: '잔잔한 사건', iconBg: 'bg-sky-50', rewardBg: 'border-sky-100 bg-sky-50/90 text-sky-700' };
+            default:
+                return { kicker: '특별한 순간', iconBg: 'bg-indigo-50', rewardBg: 'border-indigo-100 bg-indigo-50/90 text-indigo-700' };
+        }
+    }
+
+    private showMomentOverlay(moment: GameMoment) {
+        this.activeMomentId = moment.id;
+        const theme = this.getMomentTheme(moment);
+
+        const icon = this.momentOverlay.querySelector('#moment-icon') as HTMLElement;
+        const kicker = this.momentOverlay.querySelector('#moment-kicker') as HTMLElement;
+        const title = this.momentOverlay.querySelector('#moment-title') as HTMLElement;
+        const body = this.momentOverlay.querySelector('#moment-body') as HTMLElement;
+        const reward = this.momentOverlay.querySelector('#moment-reward') as HTMLElement;
+
+        icon.textContent = moment.icon;
+        icon.className = `flex h-14 w-14 items-center justify-center rounded-[1.25rem] text-3xl shadow-inner ${theme.iconBg}`;
+        kicker.textContent = theme.kicker;
+        title.textContent = moment.title;
+        body.textContent = moment.body;
+
+        if (moment.rewardText) {
+            reward.className = `mt-4 rounded-[1.25rem] border px-4 py-3 text-sm font-black ${theme.rewardBg}`;
+            reward.textContent = `보상 · ${moment.rewardText}`;
+            reward.classList.remove('hidden');
+        } else {
+            reward.classList.add('hidden');
+        }
+
+        if (moment.reward?.gold && moment.trackGoldEarned !== false) {
+            this.shopSystem.recordGoldEarned(moment.reward.gold);
+        }
+
+        this.momentOverlay.classList.remove('hidden');
+        this.momentOverlay.classList.add('flex');
+    }
+
+    private hideMomentOverlay() {
+        this.activeMomentId = null;
+        this.momentOverlay.classList.add('hidden');
+        this.momentOverlay.classList.remove('flex');
+    }
+
     private hideDialogue() {
         this.speechBubble.classList.add('opacity-0');
         this.speechBubble.classList.add('pointer-events-none');
@@ -1514,8 +1778,10 @@ export class UIManager {
 
     private getDialogueContext(): DialogueContext {
         return {
+            petName: this.fsm.stats.name || '브라키오',
             personality: this.fsm.stats.personality,
             fsmState: this.fsm.currentState,
+            bond: this.fsm.stats.bond,
             stats: {
                 fullness: this.fsm.stats.fullness,
                 energy: this.fsm.stats.energy,
@@ -1529,6 +1795,7 @@ export class UIManager {
                 const match = log.match(/\[Action\] ([\w_]+)/);
                 return match ? match[1] : '';
             }),
+            comfortMode: this.fsm.isComfortModeEnabled(),
             isInOverlay: this.currentOverlay !== 'NONE'
         };
     }
