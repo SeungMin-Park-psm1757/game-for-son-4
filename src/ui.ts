@@ -45,6 +45,8 @@ export class UIManager {
     private submenuOverlay: HTMLElement;
     private submenuOptions: HTMLElement;
     private submenuTitle: HTMLElement;
+    private appRoot: HTMLElement;
+    private hudPanel: HTMLElement | null;
 
     private arbeitOverlay: HTMLElement;
     private minigameOverlay: HTMLElement;
@@ -93,12 +95,16 @@ export class UIManager {
         this.submenuOverlay = document.getElementById('submenu-overlay')!;
         this.submenuOptions = document.getElementById('submenu-options')!;
         this.submenuTitle = document.getElementById('submenu-title')!;
+        this.appRoot = document.getElementById('app')!;
+        this.hudPanel = document.querySelector('.hud-panel');
 
         this.arbeitOverlay = document.getElementById('arbeit-overlay')!;
         this.minigameOverlay = document.getElementById('minigame-overlay')!;
         this.mgCursor = document.getElementById('minigame-cursor')!;
         this.mgResult = document.getElementById('minigame-result')!;
         this.canvasMgOverlay = document.getElementById('canvas-mg-overlay')!;
+
+        this.mountSubmenuOverlay();
 
         this.initUI();
         this.initQuizEvents();
@@ -226,6 +232,22 @@ export class UIManager {
         document.getElementById('btn-close-submenu')?.addEventListener('click', () => {
             this.switchOverlay('NONE');
         });
+    }
+
+    private mountSubmenuOverlay() {
+        if (this.submenuOverlay.parentElement !== this.appRoot) {
+            this.appRoot.appendChild(this.submenuOverlay);
+        }
+        this.syncSubmenuOverlayBounds();
+        window.addEventListener('resize', () => this.syncSubmenuOverlayBounds());
+    }
+
+    private syncSubmenuOverlayBounds() {
+        const appRect = this.appRoot.getBoundingClientRect();
+        const headerRect = this.hudPanel?.getBoundingClientRect();
+        const topInset = headerRect ? Math.max(0, headerRect.bottom - appRect.top + 8) : 0;
+        this.submenuOverlay.style.top = `${topInset}px`;
+        this.submenuOverlay.style.bottom = '0px';
     }
 
     private initComfortMode() {
@@ -668,15 +690,15 @@ export class UIManager {
 
             return `
       <button class="submenu-card group ${!isEnabled ? 'opacity-45 grayscale' : 'hover:-translate-y-[1px] hover:shadow-md'}" id="submenu-btn-${i}">
-        <div class="flex items-center justify-between gap-2">
+        <div class="submenu-card-top">
           <span class="submenu-card-icon">${it.icon}</span>
+          <div class="submenu-card-body">
+            <div class="submenu-card-title">${it.label}</div>
+            <p class="submenu-card-desc">${it.desc}</p>
+          </div>
           <span class="submenu-card-badge ${badgeClass}">${badgeLabel}</span>
         </div>
-        <div class="mt-3">
-          <div class="submenu-card-title">${it.label}</div>
-          <p class="submenu-card-desc">${it.desc}</p>
-        </div>
-        <div class="mt-auto flex items-end justify-between gap-3 pt-4">
+        <div class="submenu-card-footer">
           <span class="submenu-card-hint">${footerHint}</span>
           <span class="submenu-card-value shrink-0 ${footerValueClass}">${footerValue}</span>
         </div>
@@ -733,6 +755,7 @@ export class UIManager {
             });
         });
 
+        this.syncSubmenuOverlayBounds();
         this.submenuOverlay.classList.remove('hidden');
         this.submenuOverlay.classList.add('flex');
         setTimeout(() => {

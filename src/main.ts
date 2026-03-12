@@ -44,6 +44,32 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     loop.start();
 
+    const debugOverlay = new URLSearchParams(window.location.search).get('debugOverlay');
+    const debugSubmenuTitleMap: Record<string, string> = {
+        feed: '먹이 주기',
+        train: '훈련하기',
+        sleep: '재우기',
+        wash: '씻기',
+        interact: '교감하기',
+    };
+    if (debugOverlay) {
+        window.setTimeout(() => {
+            if (debugOverlay === 'shop') {
+                document.getElementById('btn-main-shop')?.click();
+                return;
+            }
+
+            const debugTitle = debugSubmenuTitleMap[debugOverlay];
+            if (!debugTitle) return;
+
+            const debugUI = ui as unknown as {
+                switchOverlay: (target: 'SUBMENU', openAction?: () => void) => void;
+                openSubmenu: (title: string, categoryId: string) => void;
+            };
+            debugUI.switchOverlay('SUBMENU', () => debugUI.openSubmenu(debugTitle, debugOverlay));
+        }, 220);
+    }
+
     // Save state periodically and on visibility hidden (better for mobile)
     setInterval(() => {
         StorageManager.save(fsm.stats, fsm.lastTick, fsm.careMisses);

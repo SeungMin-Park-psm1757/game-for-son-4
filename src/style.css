@@ -644,6 +644,18 @@
     transform: scale(0.985);
   }
 
+  .submenu-card-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.8rem;
+  }
+
+  .submenu-card-body {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
   .submenu-card-icon {
     font-size: 2rem;
     line-height: 1;
@@ -668,7 +680,17 @@
     margin-top: 0.3rem;
     font-size: 0.7rem;
     line-height: 1.35;
+    word-break: keep-all;
     color: #64748b;
+  }
+
+  .submenu-card-footer {
+    margin-top: auto;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding-top: 1rem;
   }
 
   .submenu-card-hint {
@@ -968,6 +990,7 @@
 
   .submenu-options {
     gap: 0.72rem;
+    padding-bottom: calc(env(safe-area-inset-bottom) + 0.25rem);
   }
 
   .submenu-card {
@@ -987,6 +1010,57 @@
 
   .submenu-card-value {
     font-size: 1.18rem;
+  }
+}
+
+@media (max-width: 430px) {
+  .submenu-sheet {
+    max-height: min(88dvh, 40rem);
+    padding-right: 0.85rem;
+    padding-left: 0.85rem;
+  }
+
+  .submenu-options {
+    gap: 0.65rem;
+  }
+
+  .submenu-card {
+    padding: 0.82rem 0.88rem;
+  }
+
+  .submenu-card-top {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 0.55rem 0.7rem;
+  }
+
+  .submenu-card-icon {
+    font-size: 1.75rem;
+  }
+
+  .submenu-card-title {
+    font-size: 0.84rem;
+  }
+
+  .submenu-card-desc {
+    font-size: 0.66rem;
+    line-height: 1.35;
+  }
+
+  .submenu-card-footer {
+    margin-top: 0.65rem;
+    gap: 0.65rem;
+    padding-top: 0;
+  }
+
+  .submenu-card-hint {
+    max-width: none;
+    flex: 1 1 auto;
+  }
+
+  .submenu-card-value {
+    font-size: 1.04rem;
   }
 }
 
