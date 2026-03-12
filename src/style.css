@@ -113,6 +113,15 @@
     text-transform: uppercase;
   }
 
+  .hud-title {
+    line-height: 0.94;
+  }
+
+  .hud-subtitle {
+    margin: 0.35rem 0 0;
+    line-height: 1.35;
+  }
+
   .icon-chip {
     display: inline-flex;
     align-items: center;
@@ -303,8 +312,41 @@
     font-size: 0.66rem;
   }
 
+  .status-grid {
+    align-items: stretch;
+  }
+
+  .status-metric {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.36rem;
+    border-radius: 1rem;
+    border: 1px solid rgba(226, 232, 240, 0.78);
+    background: rgba(248, 250, 252, 0.92);
+    padding: 0.52rem 0.62rem;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82);
+  }
+
+  .status-metric-label {
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    text-align: center;
+    color: #475569;
+  }
+
+  .status-metric-track {
+    width: 100%;
+    height: 0.62rem;
+    overflow: hidden;
+    border-radius: 999px;
+    background: rgba(226, 232, 240, 0.92);
+    box-shadow: inset 0 1px 2px rgba(100, 116, 139, 0.16);
+  }
+
   .stage-card {
-    min-height: clamp(15rem, 40vh, 25rem);
+    min-height: clamp(15.5rem, 42vh, 25rem);
     border: 1px solid rgba(255, 255, 255, 0.84);
     background:
       linear-gradient(180deg, rgba(207, 235, 255, 0.95) 0%, rgba(245, 252, 255, 0.9) 36%, rgba(240, 250, 231, 0.95) 70%, rgba(242, 214, 157, 0.95) 100%);
@@ -427,10 +469,10 @@
     gap: 0.45rem;
     border-radius: 999px;
     border: 1px solid rgba(255, 255, 255, 0.84);
-    padding: 0.8rem 1rem;
+    padding: 0.72rem 0.92rem;
     background: rgba(255, 255, 255, 0.9);
     color: #42506b;
-    font-size: 0.78rem;
+    font-size: 0.75rem;
     font-weight: 900;
     box-shadow: 0 14px 20px rgba(63, 73, 96, 0.16);
     transition: transform 160ms ease;
@@ -521,9 +563,9 @@
   }
 
   .action-dock {
-    margin: 0.6rem 0.75rem 0.75rem;
+    margin: 0.45rem 0.65rem 0.65rem;
     border: 1px solid rgba(255, 255, 255, 0.84);
-    border-radius: 1.9rem;
+    border-radius: 1.75rem;
     background:
       linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(250, 250, 250, 0.86));
     box-shadow: 0 16px 24px rgba(63, 80, 84, 0.09);
@@ -532,14 +574,14 @@
 
   .main-action-btn {
     display: flex;
-    min-height: 4.7rem;
+    min-height: 4.3rem;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    border-radius: 1.3rem;
+    border-radius: 1.18rem;
     border: 1px solid rgba(203, 213, 225, 0.9);
     background: rgba(255, 255, 255, 0.96);
-    padding: 0.55rem 0.2rem 0.65rem;
+    padding: 0.42rem 0.16rem 0.5rem;
     color: #334155;
     box-shadow: 0 10px 18px rgba(53, 65, 78, 0.08);
     transition: transform 160ms ease;
@@ -550,13 +592,13 @@
   }
 
   .main-action-icon {
-    font-size: 1.4rem;
+    font-size: 1.28rem;
     line-height: 1;
   }
 
   .main-action-label {
-    margin-top: 0.22rem;
-    font-size: 0.62rem;
+    margin-top: 0.18rem;
+    font-size: 0.58rem;
     font-weight: 900;
     line-height: 1.15;
     letter-spacing: -0.03em;
@@ -755,111 +797,164 @@
 
 @media (max-width: 420px), (max-height: 820px) {
   .hud-panel {
-    margin: 0.55rem 0.55rem 0;
-    padding: 0.85rem 0.9rem;
-    border-radius: 1.55rem;
+    margin: 0.45rem 0.45rem 0;
+    padding: 0.72rem 0.78rem;
+    border-radius: 1.45rem;
   }
 
   .hud-kicker {
-    font-size: 0.6rem;
+    font-size: 0.56rem;
     letter-spacing: 0.18em;
   }
 
+  .hud-subtitle {
+    display: none;
+  }
+
   .icon-chip {
-    width: 2.5rem;
-    height: 2.5rem;
-    border-radius: 0.92rem;
+    width: 2.28rem;
+    height: 2.28rem;
+    border-radius: 0.82rem;
   }
 
   .currency-card {
-    min-width: 4.85rem;
-    padding: 0.6rem 0.65rem;
+    min-width: 4.35rem;
+    padding: 0.48rem 0.56rem;
   }
 
   .currency-row {
-    font-size: 0.72rem;
+    gap: 0.28rem;
+    font-size: 0.67rem;
   }
 
   .status-chip {
-    min-height: 1.8rem;
-    padding: 0.42rem 0.68rem;
-    font-size: 0.68rem;
-  }
-
-  .growth-panel {
-    padding: 0.72rem 0.8rem;
-  }
-
-  .care-focus-panel {
-    padding: 0.82rem 0.88rem;
-    border-radius: 1.2rem;
-  }
-
-  .care-focus-kicker {
+    min-height: 1.62rem;
+    padding: 0.3rem 0.55rem;
     font-size: 0.62rem;
   }
 
+  .growth-panel {
+    padding: 0.58rem 0.66rem;
+  }
+
+  .growth-track {
+    height: 0.64rem;
+  }
+
+  .care-focus-panel {
+    padding: 0.58rem 0.64rem;
+    border-radius: 1.08rem;
+  }
+
+  .care-focus-head,
+  .care-focus-meta {
+    gap: 0.5rem;
+  }
+
+  .care-focus-head {
+    align-items: center;
+  }
+
+  .care-focus-kicker {
+    font-size: 0.56rem;
+  }
+
   .care-focus-title {
-    font-size: 0.88rem;
+    margin-top: 0.1rem;
+    font-size: 0.8rem;
   }
 
   .care-focus-desc {
-    font-size: 0.69rem;
+    display: none;
+  }
+
+  .care-focus-status,
+  .care-focus-reward,
+  .care-focus-progress {
+    padding: 0.34rem 0.52rem;
+    font-size: 0.58rem;
+  }
+
+  .care-focus-meta {
+    margin-top: 0.45rem;
+  }
+
+  .care-focus-status {
+    min-width: 3.4rem;
+  }
+
+  .status-grid {
+    gap: 0.3rem;
+  }
+
+  .status-metric {
+    gap: 0.28rem;
+    padding: 0.3rem 0.24rem;
+    border-radius: 0.86rem;
+  }
+
+  .status-metric-label {
+    font-size: 0.54rem;
+  }
+
+  .status-metric-track {
+    height: 0.46rem;
   }
 
   .state-banner {
-    min-width: min(16rem, 82vw);
-    padding: 0.72rem 0.95rem;
-    font-size: 0.88rem;
+    min-width: min(14rem, 80vw);
+    padding: 0.56rem 0.76rem;
+    font-size: 0.76rem;
+    line-height: 1.25;
   }
 
   .guide-fab {
-    gap: 0.35rem;
-    padding: 0.66rem 0.82rem;
-    font-size: 0.72rem;
+    gap: 0.28rem;
+    padding: 0.54rem 0.68rem;
+    font-size: 0.66rem;
   }
 
   .stage-card {
-    min-height: clamp(14rem, 37vh, 20rem);
-    border-radius: 1.65rem;
+    min-height: 14.5rem;
+    border-radius: 1.5rem;
   }
 
   .stage-sun {
-    top: 0.95rem;
-    right: 0.95rem;
-    width: 3.25rem;
-    height: 3.25rem;
+    top: 0.75rem;
+    right: 0.75rem;
+    width: 3rem;
+    height: 3rem;
   }
 
   .stage-cloud-a {
-    top: 1.4rem;
-    left: 0.9rem;
-    width: 4.4rem;
+    top: 1.15rem;
+    left: 0.8rem;
+    width: 4rem;
   }
 
   .stage-cloud-b {
-    top: 4rem;
-    left: 3.9rem;
-    width: 3.75rem;
+    top: 3.35rem;
+    left: 3.45rem;
+    width: 3.35rem;
   }
 
   .action-dock {
-    margin: 0.4rem 0.55rem 0.55rem;
-    border-radius: 1.55rem;
+    margin: 0.28rem 0.45rem 0.45rem;
+    border-radius: 1.38rem;
   }
 
   .main-action-btn {
-    min-height: 4.15rem;
-    border-radius: 1.08rem;
-    padding: 0.45rem 0.12rem 0.55rem;
+    min-height: 3.45rem;
+    border-radius: 0.96rem;
+    padding: 0.34rem 0.08rem 0.38rem;
   }
 
   .main-action-icon {
-    font-size: 1.26rem;
+    font-size: 0.98rem;
   }
 
   .main-action-label {
-    font-size: 0.58rem;
+    font-size: 0.5rem;
   }
 
   .submenu-sheet {
@@ -892,5 +987,47 @@
 
   .submenu-card-value {
     font-size: 1.18rem;
+  }
+}
+
+@media (max-height: 760px) {
+  .hud-subtitle {
+    display: none;
+  }
+
+  .status-chip {
+    min-height: 1.52rem;
+    padding: 0.28rem 0.48rem;
+    font-size: 0.6rem;
+  }
+
+  .care-focus-panel {
+    padding: 0.6rem 0.66rem;
+  }
+
+  .care-focus-desc {
+    -webkit-line-clamp: 1;
+  }
+
+  .state-banner {
+    padding: 0.5rem 0.7rem;
+    font-size: 0.72rem;
+  }
+
+  .guide-fab {
+    padding: 0.48rem 0.62rem;
+    font-size: 0.62rem;
+  }
+
+  .stage-card {
+    min-height: 13.5rem;
+  }
+
+  .action-dock {
+    margin-top: 0.22rem;
+  }
+
+  .main-action-btn {
+    min-height: 3.35rem;
   }
 }

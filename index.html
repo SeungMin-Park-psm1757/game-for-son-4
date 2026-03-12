@@ -22,10 +22,10 @@
         <div class="flex items-start justify-between gap-3">
           <div class="min-w-0">
             <p class="hud-kicker">Pocket Dino Friend</p>
-            <h1 id="pet-name-heading" class="truncate text-[1.65rem] font-black tracking-[-0.04em] text-slate-900">
+            <h1 id="pet-name-heading" class="hud-title truncate text-[1.5rem] font-black tracking-[-0.04em] text-slate-900 sm:text-[1.65rem]">
               브라키오
             </h1>
-            <p class="text-[11px] font-semibold text-slate-500">핸드폰 속에서 함께 자라는 작은 브라키오</p>
+            <p class="hud-subtitle text-[11px] font-semibold text-slate-500">핸드폰 속에서 함께 자라는 작은 브라키오</p>
           </div>
 
           <div class="flex items-start gap-2">
@@ -45,7 +45,7 @@
           </div>
         </div>
 
-        <div class="mt-4 flex flex-wrap gap-2">
+        <div class="mt-3 flex flex-wrap gap-2">
           <div id="bond-badge" class="status-chip status-chip-rose">하트 0 · 낯선 친구</div>
           <div id="pet-age-pill" class="status-chip status-chip-mint">0살</div>
           <div id="stage-badge" class="status-chip status-chip-sand">아기</div>
@@ -56,7 +56,7 @@
           </button>
         </div>
 
-        <div class="growth-panel mt-4">
+        <div class="growth-panel mt-3">
           <div class="flex items-center justify-between gap-3 text-[11px] font-bold text-slate-600">
             <span id="growth-caption">다음 성장까지</span>
             <span id="growth-next">6시간 남음</span>
@@ -66,8 +66,8 @@
           </div>
         </div>
 
-        <div id="care-focus-panel" class="care-focus-panel mt-4 hidden">
-          <div class="flex items-start justify-between gap-3">
+        <div id="care-focus-panel" class="care-focus-panel mt-3 hidden">
+          <div class="care-focus-head flex items-start justify-between gap-3">
             <div class="min-w-0">
               <p id="care-focus-kicker" class="care-focus-kicker">첫날 안내</p>
               <h3 id="care-focus-title" class="care-focus-title">작은 돌봄부터 시작해요</h3>
@@ -75,18 +75,18 @@
             </div>
             <span id="care-focus-status" class="care-focus-status">진행 중</span>
           </div>
-          <div class="mt-3 flex items-center justify-between gap-3">
+          <div class="care-focus-meta mt-3 flex items-center justify-between gap-3">
             <span id="care-focus-reward" class="care-focus-reward">보상 · 20G</span>
             <span id="care-focus-progress" class="care-focus-progress">1 / 4</span>
           </div>
         </div>
 
-        <div id="status-bars" class="mt-4 grid grid-cols-2 gap-2 text-[10px] font-bold sm:grid-cols-4"></div>
+        <div id="status-bars" class="status-grid mt-3 grid grid-cols-4 gap-1.5 text-[10px] font-bold sm:gap-2"></div>
       </header>
 
       <main class="relative z-10 flex-1 min-h-0 overflow-hidden px-3 pb-2">
         <div id="main-canvas" class="relative flex h-full min-h-0 flex-col">
-          <div class="pointer-events-none absolute inset-x-0 top-5 z-10 flex justify-center">
+          <div class="stage-banner-wrap pointer-events-none absolute inset-x-0 top-2 z-10 flex justify-center sm:top-5">
             <div id="state-text" class="state-banner">기분이 좋아요! 🌿</div>
           </div>
 
@@ -94,12 +94,12 @@
             <div id="sleep-alert" class="sleep-alert hidden">잘 시간이에요. 재워줄까요?</div>
           </div>
 
-          <button id="btn-encyclopedia" class="guide-fab absolute bottom-4 right-3 z-20" aria-label="수첩 열기">
+          <button id="btn-encyclopedia" class="guide-fab absolute bottom-3 right-3 z-20" aria-label="수첩 열기">
             <span>📖</span>
             <span>수첩</span>
           </button>
 
-          <div class="stage-card relative mt-12 flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-[2rem]">
+          <div class="stage-card relative mt-0 flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-[2rem] sm:mt-12">
             <div class="stage-sun"></div>
             <div class="stage-cloud stage-cloud-a"></div>
             <div class="stage-cloud stage-cloud-b"></div>
@@ -423,8 +423,8 @@
         </div>
       </main>
 
-      <footer class="action-dock relative z-20 shrink-0 px-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-3">
-        <div id="interaction-buttons" class="grid grid-cols-6 gap-2"></div>
+      <footer class="action-dock relative z-20 shrink-0 px-2.5 pb-[calc(env(safe-area-inset-bottom)+0.85rem)] pt-2">
+        <div id="interaction-buttons" class="grid grid-cols-6 gap-1.5 sm:gap-2"></div>
       </footer>
     </div>
   </div>

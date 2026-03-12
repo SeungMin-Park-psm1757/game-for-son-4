@@ -746,10 +746,10 @@ export class UIManager {
         const colors = ['bg-rose-400', 'bg-yellow-400', 'bg-sky-400', 'bg-violet-400'];
 
         this.barsElement.innerHTML = stats.map((stat, i) => `
-      <div class="flex-1 flex flex-col gap-1 items-center bg-slate-50 border border-slate-100/50 rounded-lg p-1">
-        <label class="text-[10px] text-slate-600 tracking-tighter">${labels[i]}</label>
-        <div class="h-2 w-full bg-slate-200 rounded-full overflow-hidden shadow-inner">
-          <div id="bar-${stat}" class="h-full ${colors[i]} rounded-full transition-all duration-300 ease-out" style="width: 100%"></div>
+      <div class="status-metric flex-1">
+        <label class="status-metric-label">${labels[i]}</label>
+        <div class="status-metric-track">
+          <div id="bar-${stat}" class="status-metric-fill h-full ${colors[i]} rounded-full transition-all duration-300 ease-out" style="width: 100%"></div>
         </div>
       </div>
     `).join('');

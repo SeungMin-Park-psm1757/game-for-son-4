@@ -63,8 +63,8 @@ const EXPRESSIONS: Record<ExpressionKey, Expression> = {
 
 /** Returns a size multiplier based on age (4yr = 1.0 baseline) */
 function ageSizeMultiplier(ageYears: number): number {
-    if (ageYears < 0.1) return 0.35;        // just hatched – tiny
-    if (ageYears < 1) return 0.35 + ageYears * 0.35;   // 0→1 : 0.35→0.70
+    if (ageYears < 0.1) return 0.38;        // just hatched – tiny
+    if (ageYears < 1) return 0.38 + ageYears * 0.34;   // 0→1 : 0.38→0.72
     if (ageYears < 4) return 0.70 + (ageYears - 1) / 3 * 0.30; // 1→4 : 0.70→1.00
     if (ageYears < 6) return 1.00 + (ageYears - 4) / 2 * 0.18; // 4→6 : 1.00→1.18
     if (ageYears < 10) return 1.18;        // 6→9 : max size
@@ -80,7 +80,7 @@ function headRoundness(ageYears: number): number {
 }
 
 function headSizeFactor(ageYears: number): number {
-    if (ageYears < 1) return 1.28;
+    if (ageYears < 1) return 1.38;
     if (ageYears < 3) return 1.2;
     if (ageYears < 6) return 1.12;
     return 1.04;
@@ -1082,7 +1082,8 @@ export class CanvasRenderer {
         const renderX = this.width / 2 + currentWanderX + renderShiftX;
         const flipH = !animation && this.fsm.wanderTargetX < this.fsm.wanderX;
 
-        const stageGroundY = this.height * 0.72;
+        const stageGroundRatio = this.height < 300 ? 0.675 : this.height < 360 ? 0.69 : 0.72;
+        const stageGroundY = this.height * stageGroundRatio;
         this.ctx.translate(renderX, stageGroundY + breath + bodyOscillationY);
         if (flipH) this.ctx.scale(-1, 1);
 
@@ -1116,7 +1117,7 @@ export class CanvasRenderer {
         const snoutRY = 11.5 * sizeMul * Math.max(0.92, roundness * 0.96);
 
         // Face scale for expressions
-        const faceScale = sizeMul * Math.max(1.1, headSize * 0.94);
+        const faceScale = sizeMul * Math.max(1.18, headSize * 0.98);
 
         // Eye positions
         const eye1X = headX - 12 * sizeMul;
