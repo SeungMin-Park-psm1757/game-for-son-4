@@ -174,90 +174,216 @@ export class CanvasRenderer {
         ctx.fill();
     }
 
-    private fillPixelRect(x: number, y: number, width: number, height: number, color: string, alpha: number = 1) {
+    private fillRoundedRect(
+        x: number,
+        y: number,
+        width: number,
+        height: number,
+        radius: number,
+        fillStyle: string | CanvasGradient,
+        alpha: number = 1,
+    ) {
         this.ctx.save();
         this.ctx.globalAlpha = alpha;
-        this.ctx.fillStyle = color;
-        this.ctx.fillRect(
-            Math.round(x),
-            Math.round(y),
-            Math.max(1, Math.round(width)),
-            Math.max(1, Math.round(height)),
-        );
+        this.ctx.fillStyle = fillStyle;
+        this.ctx.beginPath();
+        this.ctx.roundRect(x, y, width, height, radius);
+        this.ctx.fill();
         this.ctx.restore();
     }
 
-    private drawPixelStar(x: number, y: number, color: string = '#fff6bf') {
-        this.fillPixelRect(x, y, 2, 2, color, 0.95);
-        this.fillPixelRect(x - 2, y + 1, 6, 1, color, 0.8);
-        this.fillPixelRect(x + 1, y - 2, 1, 6, color, 0.8);
+    private drawSoftStar(x: number, y: number, radius: number, alpha: number = 1) {
+        const ctx = this.ctx;
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = '#fff5c8';
+        ctx.beginPath();
+        for (let point = 0; point < 5; point++) {
+            const outerAngle = -Math.PI / 2 + (Math.PI * 2 * point) / 5;
+            const innerAngle = outerAngle + Math.PI / 5;
+            const outerX = x + Math.cos(outerAngle) * radius;
+            const outerY = y + Math.sin(outerAngle) * radius;
+            const innerX = x + Math.cos(innerAngle) * radius * 0.45;
+            const innerY = y + Math.sin(innerAngle) * radius * 0.45;
+            if (point === 0) ctx.moveTo(outerX, outerY);
+            else ctx.lineTo(outerX, outerY);
+            ctx.lineTo(innerX, innerY);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+    }
+
+    private drawGlowCircle(x: number, y: number, radius: number, coreColor: string, glowColor: string, glowRadius: number = radius * 2) {
+        const ctx = this.ctx;
+        const glow = ctx.createRadialGradient(x, y, radius * 0.18, x, y, glowRadius);
+        glow.addColorStop(0, coreColor);
+        glow.addColorStop(0.45, glowColor);
+        glow.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = glow;
+        ctx.beginPath();
+        ctx.arc(x, y, glowRadius, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    private drawLantern(x: number, y: number, scale: number, glowAlpha: number = 0.28) {
+        const ctx = this.ctx;
+        this.drawGlowCircle(x, y - 2 * scale, 12 * scale, 'rgba(255,245,193,0.96)', `rgba(255,214,116,${glowAlpha})`, 44 * scale);
+        this.fillRoundedRect(x - 14 * scale, y - 18 * scale, 28 * scale, 34 * scale, 10 * scale, '#7d6858');
+        this.fillRoundedRect(x - 10 * scale, y - 14 * scale, 20 * scale, 22 * scale, 8 * scale, '#ffe7ab', 0.95);
+        ctx.save();
+        ctx.strokeStyle = '#6a5442';
+        ctx.lineWidth = Math.max(2, 3 * scale);
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(x, y + 16 * scale);
+        ctx.lineTo(x, y + 44 * scale);
+        ctx.moveTo(x - 8 * scale, y - 19 * scale);
+        ctx.quadraticCurveTo(x, y - 31 * scale, x + 8 * scale, y - 19 * scale);
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    private drawTent(x: number, y: number, scale: number) {
+        const ctx = this.ctx;
+        ctx.save();
+        const tentGradient = ctx.createLinearGradient(x - 72 * scale, y - 58 * scale, x + 72 * scale, y + 40 * scale);
+        tentGradient.addColorStop(0, '#8eb3de');
+        tentGradient.addColorStop(1, '#446d97');
+        ctx.fillStyle = tentGradient;
+        ctx.beginPath();
+        ctx.moveTo(x, y - 72 * scale);
+        ctx.lineTo(x + 84 * scale, y + 26 * scale);
+        ctx.lineTo(x - 84 * scale, y + 26 * scale);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.fillStyle = 'rgba(237,247,255,0.9)';
+        ctx.beginPath();
+        ctx.moveTo(x, y - 72 * scale);
+        ctx.lineTo(x + 34 * scale, y + 26 * scale);
+        ctx.lineTo(x - 34 * scale, y + 26 * scale);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.strokeStyle = 'rgba(58,86,112,0.38)';
+        ctx.lineWidth = Math.max(2, 4 * scale);
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(x, y - 72 * scale);
+        ctx.lineTo(x, y + 26 * scale);
+        ctx.stroke();
+        ctx.restore();
     }
 
     private drawSleepBackdrop(sleepType: 'bed' | 'floor' | 'outside', tickCount: number) {
         const ctx = this.ctx;
-        const isOutside = sleepType === 'outside';
         const sky = ctx.createLinearGradient(0, 0, 0, this.height);
 
         if (sleepType === 'bed') {
-            sky.addColorStop(0, '#14254b');
-            sky.addColorStop(0.6, '#263d73');
-            sky.addColorStop(1, '#50638a');
+            sky.addColorStop(0, '#23365d');
+            sky.addColorStop(0.58, '#3b5686');
+            sky.addColorStop(1, '#6e7f9a');
         } else if (sleepType === 'floor') {
-            sky.addColorStop(0, '#18264a');
-            sky.addColorStop(0.6, '#31466f');
-            sky.addColorStop(1, '#5a6f8f');
+            sky.addColorStop(0, '#21385b');
+            sky.addColorStop(0.56, '#4c688d');
+            sky.addColorStop(1, '#93a6bf');
         } else {
-            sky.addColorStop(0, '#071a37');
-            sky.addColorStop(0.58, '#16315a');
-            sky.addColorStop(1, '#22446f');
+            sky.addColorStop(0, '#11284a');
+            sky.addColorStop(0.56, '#1e4570');
+            sky.addColorStop(1, '#355b6d');
         }
 
         ctx.fillStyle = sky;
         ctx.fillRect(0, 0, this.width, this.height);
 
-        if (isOutside) {
-            this.fillPixelRect(0, this.height * 0.68, this.width, this.height * 0.32, '#294b4f');
-            this.fillPixelRect(0, this.height * 0.8, this.width, this.height * 0.2, '#183238');
-            this.fillPixelRect(this.width - 88, 28, 22, 22, '#fff1a8', 0.95);
-            this.fillPixelRect(this.width - 82, 34, 14, 14, '#ffe58a', 0.95);
+        if (sleepType === 'outside') {
+            const moonX = this.width - 78;
+            const moonY = Math.max(54, this.height * 0.16);
+            this.drawGlowCircle(moonX, moonY, 26, 'rgba(255,246,195,0.95)', 'rgba(255,220,124,0.28)', 86);
 
-            const starDrift = Math.sin(tickCount / 26) * 1.5;
-            [[44, 26], [82, 52], [124, 34], [176, 60], [242, 38], [292, 54]].forEach(([x, y]) => {
-                this.drawPixelStar(x, y + starDrift);
-            });
+            const twinkle = Math.sin(tickCount / 26) * 0.18 + 0.82;
+            const stars = [
+                [46, 38, 5],
+                [96, 54, 4],
+                [152, 32, 6],
+                [206, 62, 4],
+                [274, 42, 5],
+            ] as const;
+            for (const [x, y, size] of stars) {
+                this.drawSoftStar(x, y + Math.sin((tickCount + x) / 28) * 1.2, size, twinkle);
+            }
 
-            this.fillPixelRect(26, this.height - 118, 64, 44, '#33536d');
-            this.fillPixelRect(34, this.height - 126, 48, 12, '#f3d98a');
-            this.fillPixelRect(42, this.height - 74, 4, 26, '#473528');
-            this.fillPixelRect(this.width - 60, this.height - 112, 10, 34, '#574736');
-            this.fillPixelRect(this.width - 68, this.height - 118, 26, 12, '#ffd875', 0.9);
-            this.fillPixelRect(this.width * 0.28, this.height - 108, this.width * 0.44, 18, '#93b5da');
-            this.fillPixelRect(this.width * 0.32, this.height - 90, this.width * 0.36, 16, '#d5e6ff');
+            ctx.fillStyle = '#3f6a62';
+            ctx.beginPath();
+            ctx.ellipse(this.width * 0.22, this.height * 0.77, this.width * 0.38, this.height * 0.16, 0, 0, Math.PI * 2);
+            ctx.ellipse(this.width * 0.74, this.height * 0.79, this.width * 0.46, this.height * 0.18, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.fillStyle = '#2a4a47';
+            ctx.beginPath();
+            ctx.ellipse(this.width * 0.58, this.height * 0.92, this.width * 0.7, this.height * 0.22, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            this.drawTent(76, this.height - 92, 0.62);
+            this.drawLantern(this.width - 58, this.height - 94, 0.72, 0.24);
+
+            const blanket = ctx.createLinearGradient(this.width * 0.28, this.height - 106, this.width * 0.72, this.height - 58);
+            blanket.addColorStop(0, '#8db0d8');
+            blanket.addColorStop(1, '#d9e9ff');
+            this.fillRoundedRect(this.width * 0.28, this.height - 102, this.width * 0.44, 30, 18, blanket);
+            this.fillRoundedRect(this.width * 0.33, this.height - 86, this.width * 0.34, 22, 16, '#f2f6ff', 0.95);
         } else if (sleepType === 'bed') {
-            this.fillPixelRect(0, this.height * 0.74, this.width, this.height * 0.26, '#7a614e');
-            this.fillPixelRect(0, this.height * 0.78, this.width, this.height * 0.22, '#5c4638');
-            this.fillPixelRect(this.width - 86, 26, 44, 34, '#8fb5ff', 0.95);
-            this.fillPixelRect(this.width - 78, 34, 28, 18, '#dfe8ff', 0.95);
-            this.fillPixelRect(this.width - 70, 38, 12, 12, '#fff0a8', 0.95);
-            this.fillPixelRect(28, this.height - 132, this.width - 56, 14, '#a17468');
-            this.fillPixelRect(44, this.height - 118, this.width - 88, 44, '#d9b8a3');
-            this.fillPixelRect(58, this.height - 106, this.width - 116, 26, '#b7d2f5');
-            this.fillPixelRect(74, this.height - 112, 30, 14, '#f8f3df');
-            this.fillPixelRect(this.width - 58, this.height - 138, 8, 42, '#5f493e');
-            this.fillPixelRect(this.width - 66, this.height - 146, 24, 12, '#ffd68a');
+            ctx.fillStyle = '#8b705c';
+            ctx.fillRect(0, this.height * 0.72, this.width, this.height * 0.28);
+            ctx.fillStyle = '#6d5647';
+            ctx.fillRect(0, this.height * 0.8, this.width, this.height * 0.2);
+
+            this.drawGlowCircle(this.width - 68, 60, 20, 'rgba(255,247,199,0.92)', 'rgba(145,189,255,0.16)', 70);
+            this.fillRoundedRect(this.width - 92, 30, 50, 64, 16, '#d5e3f4');
+            this.fillRoundedRect(this.width - 80, 40, 26, 44, 12, '#edf4ff', 0.92);
+
+            const bedFrame = ctx.createLinearGradient(28, this.height - 136, this.width - 28, this.height - 70);
+            bedFrame.addColorStop(0, '#a77a63');
+            bedFrame.addColorStop(1, '#805744');
+            this.fillRoundedRect(28, this.height - 118, this.width - 56, 64, 26, bedFrame);
+
+            const blanket = ctx.createLinearGradient(44, this.height - 116, this.width - 44, this.height - 78);
+            blanket.addColorStop(0, '#f1bcc3');
+            blanket.addColorStop(1, '#d6849c');
+            this.fillRoundedRect(44, this.height - 112, this.width - 88, 48, 24, blanket);
+            this.fillRoundedRect(64, this.height - 112, 42, 24, 12, '#f8f3ff', 0.95);
+
+            ctx.save();
+            ctx.strokeStyle = '#76503b';
+            ctx.lineWidth = 8;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            ctx.moveTo(44, this.height - 56);
+            ctx.lineTo(44, this.height - 24);
+            ctx.moveTo(this.width - 44, this.height - 56);
+            ctx.lineTo(this.width - 44, this.height - 24);
+            ctx.stroke();
+            ctx.restore();
+
+            this.drawLantern(this.width - 44, this.height - 138, 0.64, 0.18);
         } else {
-            this.fillPixelRect(0, this.height * 0.73, this.width, this.height * 0.27, '#846e5d');
-            this.fillPixelRect(0, this.height * 0.8, this.width, this.height * 0.2, '#6d594c');
-            this.fillPixelRect(20, 34, 54, 14, '#9fbcdf');
-            this.fillPixelRect(20, 48, 10, 56, '#c6d7e8');
-            this.fillPixelRect(this.width - 76, 30, 28, 18, '#d7e6f5');
-            this.fillPixelRect(this.width - 66, 48, 8, 44, '#f0d899');
-            this.fillPixelRect(this.width * 0.25, this.height - 110, this.width * 0.5, 22, '#9bb0d2');
-            this.fillPixelRect(this.width * 0.3, this.height - 92, this.width * 0.4, 16, '#ecf0f4');
-            this.fillPixelRect(this.width * 0.33, this.height - 104, 26, 12, '#f6f0de');
+            ctx.fillStyle = '#8f7964';
+            ctx.fillRect(0, this.height * 0.72, this.width, this.height * 0.28);
+            ctx.fillStyle = '#755f50';
+            ctx.fillRect(0, this.height * 0.8, this.width, this.height * 0.2);
+
+            this.fillRoundedRect(20, 36, 56, 72, 14, '#d1deef');
+            this.fillRoundedRect(28, 44, 40, 54, 12, '#eef5ff', 0.94);
+            this.drawGlowCircle(48, 62, 16, 'rgba(255,246,193,0.92)', 'rgba(151,187,255,0.15)', 54);
+
+            this.fillRoundedRect(this.width * 0.25, this.height - 110, this.width * 0.5, 34, 22, '#97aecf');
+            this.fillRoundedRect(this.width * 0.3, this.height - 94, this.width * 0.4, 24, 18, '#edf2fb', 0.95);
+            this.fillRoundedRect(this.width * 0.34, this.height - 106, 28, 18, 9, '#f6f1df', 0.96);
+            this.drawLantern(this.width - 58, 66, 0.84, 0.2);
         }
 
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.06)';
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
         ctx.fillRect(0, 0, this.width, this.height);
     }
 

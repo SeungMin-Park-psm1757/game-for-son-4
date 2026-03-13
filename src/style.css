@@ -786,7 +786,9 @@
   .main-action-icon-asset {
     width: 1.6rem;
     height: 1.6rem;
-    image-rendering: pixelated;
+    display: block;
+    object-fit: contain;
+    filter: drop-shadow(0 0.18rem 0.3rem rgba(62, 86, 92, 0.12));
   }
 
   .main-action-label {
@@ -876,7 +878,9 @@
   .submenu-card-icon-asset {
     width: 2.15rem;
     height: 2.15rem;
-    image-rendering: pixelated;
+    display: block;
+    object-fit: contain;
+    filter: drop-shadow(0 0.24rem 0.4rem rgba(62, 86, 92, 0.14));
   }
 
   .submenu-card-badge {
