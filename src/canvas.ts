@@ -113,11 +113,11 @@ export class CanvasRenderer {
     }
 
     private syncCanvasSize() {
+        const dpr = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
         const cssWidth = Math.max(1, Math.floor(this.canvas.clientWidth || this.canvas.width));
         const cssHeight = Math.max(1, Math.floor(this.canvas.clientHeight || this.canvas.height));
-        const pixelDensity = cssWidth <= 430 ? 0.58 : cssWidth <= 680 ? 0.72 : 0.88;
-        const pixelWidth = Math.max(160, Math.floor(cssWidth * pixelDensity));
-        const pixelHeight = Math.max(160, Math.floor(cssHeight * pixelDensity));
+        const pixelWidth = Math.max(240, Math.floor(cssWidth * dpr));
+        const pixelHeight = Math.max(240, Math.floor(cssHeight * dpr));
 
         if (this.canvas.width !== pixelWidth || this.canvas.height !== pixelHeight) {
             this.canvas.width = pixelWidth;
@@ -125,8 +125,8 @@ export class CanvasRenderer {
         }
 
         this.ctx = this.canvas.getContext('2d')!;
-        this.ctx.setTransform(pixelWidth / cssWidth, 0, 0, pixelHeight / cssHeight, 0, 0);
-        this.ctx.imageSmoothingEnabled = false;
+        this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        this.ctx.imageSmoothingEnabled = true;
         this.width = cssWidth;
         this.height = cssHeight;
     }

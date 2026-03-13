@@ -8,6 +8,7 @@ import { AUDIO } from './audio';
 import { HOOKS } from './events/hooks';
 import { DialogueManager } from './dialogue/DialogueManager';
 import { getPetTapPattern } from './dialogue/petTapDialogues';
+import { getPetStrokeDialogue, type PetStrokeIntensity } from './dialogue/petStrokeDialogues';
 import { DialogueContext, DialoguePortraitAsset, DialogueResult } from './dialogue/types';
 import { MinigameRunner } from './minigames/MinigameRunner';
 import { SortBaskets } from './minigames/SortBaskets';
@@ -19,6 +20,7 @@ import { MathQuizEngine, MathQuestion, MATH_QUIZ_GOLD, MATH_QUIZ_AMBER_BONUS } f
 import { getActiveSecondsForAge } from './growth';
 import { describeRewardBundle, type GameMoment } from './progression';
 import { CARE_STYLE_GUIDE, getBondTier, getGrowthStageId, getReadableDialoguePortrait } from './presentation';
+import { getActionIconMarkup } from './actionIcons';
 
 export type UIOverlayState = 'NONE' | 'SUBMENU' | 'SHOP' | 'QUIZ' | 'ARBEIT' | 'ENCYCLOPEDIA' | 'MINIGAME' | 'CANVAS_MG' | 'INTRO' | 'DEATH';
 
@@ -88,6 +90,14 @@ export class UIManager {
     private fruitSessionRounds = 0;
     private fruitSessionGold = 0;
     private fruitSessionPerfects = 0;
+    private activePetStrokePointerId: number | null = null;
+    private petStrokeDistance = 0;
+    private petStrokeDurationMs = 0;
+    private petStrokeLastPoint: { x: number; y: number } | null = null;
+    private petStrokeStartedAt = 0;
+    private petStrokeEligible = false;
+    private suppressNextCanvasTap = false;
+    private lastPetStrokeRewardAt = 0;
 
     constructor(private fsm: FSM) {
         this.barsElement = document.getElementById('status-bars')!;
@@ -121,7 +131,7 @@ export class UIManager {
         this.mountSubmenuOverlay();
         this.mountFullscreenOverlays();
 
-        this.initReadableUI();
+        this.initResponsiveUI();
         this.initQuizEvents();
         this.initShopEvents();
         this.initArbeitEvents();
@@ -171,6 +181,7 @@ export class UIManager {
             this.getSeasonLabelKr,
             this.getStateBannerText,
             this.getActionFeedback,
+            this.initReadableUI,
             this.initUI,
             this.openEncyclopedia,
         ];
@@ -247,6 +258,14 @@ export class UIManager {
                 const { StorageManager } = await import('./storage');
                 await StorageManager.clear();
                 window.location.reload();
+            });
+        }
+
+        const btnWake = document.getElementById('btn-wake-pet');
+        if (btnWake) {
+            btnWake.addEventListener('click', (event) => {
+                event.stopPropagation();
+                this.wakeSleepingPet();
             });
         }
 
@@ -440,9 +459,39 @@ export class UIManager {
             skipAnimation();
         });
 
-        document.getElementById('pet-canvas')?.addEventListener('click', (event) => {
+        const petCanvas = document.getElementById('pet-canvas') as HTMLCanvasElement | null;
+        if (!petCanvas) return;
+
+        petCanvas.addEventListener('pointerdown', (event) => {
+            if (this.currentOverlay !== 'NONE' || this.fsm.isEgg || this.fsm.stats.isDead) return;
+            if ((event.target as HTMLElement).closest('button')) return;
+
+            AUDIO.init();
+            this.beginPetStroke(event, petCanvas);
+        });
+
+        petCanvas.addEventListener('pointermove', (event) => {
+            this.trackPetStroke(event);
+        });
+
+        const finishStroke = (event: PointerEvent) => {
+            this.finishPetStroke(event, petCanvas);
+        };
+
+        petCanvas.addEventListener('pointerup', finishStroke);
+        petCanvas.addEventListener('pointercancel', finishStroke);
+        petCanvas.addEventListener('pointerleave', finishStroke);
+
+        petCanvas.addEventListener('click', (event) => {
             if (this.currentOverlay !== 'NONE') return;
             AUDIO.init();
+
+            if (this.suppressNextCanvasTap) {
+                this.suppressNextCanvasTap = false;
+                event.stopPropagation();
+                return;
+            }
+
             if (this.headerCollapsed === false && this.shouldUseCollapsedHeader()) {
                 this.setHeaderCollapsed(true);
             }
@@ -477,6 +526,163 @@ export class UIManager {
             ttlMs: 3200,
             portrait: getReadableDialoguePortrait(context, 'tap'),
         });
+    }
+
+    private getCurrentSleepActionId() {
+        if (!this.fsm.sleepType) return null;
+        return `sleep_${this.fsm.sleepType}` as const;
+    }
+
+    private wakeSleepingPet() {
+        const sleepActionId = this.getCurrentSleepActionId();
+        if (!sleepActionId) return;
+        const res = this.fsm.performSpecificAction(sleepActionId);
+        this.handleActionResult({ ...res, msg: this.getResponsiveActionFeedback(sleepActionId, res) });
+        this.update();
+    }
+
+    private getCanvasPoint(event: PointerEvent, canvas: HTMLCanvasElement) {
+        const rect = canvas.getBoundingClientRect();
+        return {
+            x: event.clientX - rect.left,
+            y: event.clientY - rect.top,
+            width: rect.width,
+            height: rect.height,
+        };
+    }
+
+    private getPetInteractionBounds(width: number, height: number) {
+        if (this.fsm.isSleeping) {
+            return {
+                left: width * 0.26,
+                top: height * 0.5,
+                right: width * 0.74,
+                bottom: height * 0.86,
+            };
+        }
+
+        const stage = getGrowthStageId(this.fsm.stats.evolutionTier);
+        const metrics = {
+            baby: { left: 0.32, top: 0.4, right: 0.68, bottom: 0.82 },
+            child: { left: 0.28, top: 0.34, right: 0.72, bottom: 0.84 },
+            teen: { left: 0.25, top: 0.3, right: 0.75, bottom: 0.85 },
+            adult: { left: 0.22, top: 0.28, right: 0.78, bottom: 0.86 },
+        }[stage];
+
+        return {
+            left: width * metrics.left,
+            top: height * metrics.top,
+            right: width * metrics.right,
+            bottom: height * metrics.bottom,
+        };
+    }
+
+    private isPointInBounds(point: { x: number; y: number }, bounds: { left: number; top: number; right: number; bottom: number }, padding = 0) {
+        return (
+            point.x >= bounds.left - padding &&
+            point.x <= bounds.right + padding &&
+            point.y >= bounds.top - padding &&
+            point.y <= bounds.bottom + padding
+        );
+    }
+
+    private beginPetStroke(event: PointerEvent, canvas: HTMLCanvasElement) {
+        if (this.fsm.activeAnimation) return;
+
+        const point = this.getCanvasPoint(event, canvas);
+        const bounds = this.getPetInteractionBounds(point.width, point.height);
+        if (!this.isPointInBounds(point, bounds, 12)) return;
+
+        this.activePetStrokePointerId = event.pointerId;
+        this.petStrokeDistance = 0;
+        this.petStrokeDurationMs = 0;
+        this.petStrokeLastPoint = point;
+        this.petStrokeStartedAt = performance.now();
+        this.petStrokeEligible = true;
+        this.suppressNextCanvasTap = false;
+        canvas.setPointerCapture?.(event.pointerId);
+    }
+
+    private trackPetStroke(event: PointerEvent) {
+        if (this.activePetStrokePointerId !== event.pointerId || !this.petStrokeLastPoint) return;
+
+        const canvas = event.currentTarget as HTMLCanvasElement;
+        const point = this.getCanvasPoint(event, canvas);
+        const bounds = this.getPetInteractionBounds(point.width, point.height);
+        const segment = Math.hypot(point.x - this.petStrokeLastPoint.x, point.y - this.petStrokeLastPoint.y);
+
+        if (!this.isPointInBounds(point, bounds, 24)) {
+            if (segment > 36) {
+                this.petStrokeEligible = false;
+            }
+        } else if (segment > 1.5) {
+            this.petStrokeDistance += Math.min(segment, 28);
+        }
+
+        this.petStrokeDurationMs = performance.now() - this.petStrokeStartedAt;
+        this.petStrokeLastPoint = point;
+    }
+
+    private finishPetStroke(event: PointerEvent, canvas: HTMLCanvasElement) {
+        if (this.activePetStrokePointerId !== event.pointerId) return;
+
+        const didStroke =
+            this.petStrokeEligible &&
+            this.petStrokeDistance >= 42 &&
+            this.petStrokeDurationMs >= 120;
+
+        if (didStroke) {
+            this.suppressNextCanvasTap = true;
+            this.handlePetStrokeGesture(this.petStrokeDistance >= 120 ? 'deep' : 'gentle');
+        } else if (this.petStrokeDistance >= 8) {
+            this.suppressNextCanvasTap = true;
+        }
+
+        this.activePetStrokePointerId = null;
+        this.petStrokeDistance = 0;
+        this.petStrokeDurationMs = 0;
+        this.petStrokeLastPoint = null;
+        this.petStrokeStartedAt = 0;
+        this.petStrokeEligible = false;
+        try {
+            canvas.releasePointerCapture?.(event.pointerId);
+        } catch {
+            // Pointer capture may already be cleared on some mobile browsers.
+        }
+    }
+
+    private handlePetStrokeGesture(intensity: PetStrokeIntensity) {
+        const context = this.getDialogueContext();
+        const text = getPetStrokeDialogue(context, intensity);
+        const portrait = {
+            ...getReadableDialoguePortrait(context, context.fsmState === 'Sleep' ? 'state' : 'tap', 'interact_petting'),
+            sticker: intensity === 'deep' ? '💞' : '🫳',
+            moodLabel: intensity === 'deep' ? '손길에 기대는 얼굴' : '손길을 느끼는 얼굴',
+            badgeText: context.fsmState === 'Sleep'
+                ? '조용히 쓰다듬어 주는 걸 느끼는 중'
+                : intensity === 'deep'
+                    ? '살살 쓸어 주니까 마음이 풀리고 있어요'
+                    : '천천히 만져 주는 손길을 좋아해요',
+        } satisfies DialoguePortraitAsset;
+
+        const now = Date.now();
+        if (now - this.lastPetStrokeRewardAt > 18000) {
+            const happinessGain = this.fsm.currentState === 'Naughty' ? 4 : 2;
+            this.fsm.stats.happiness = Math.min(100, this.fsm.stats.happiness + happinessGain);
+            this.fsm.rewardBond(intensity === 'deep' ? 2 : 1, `${this.fsm.stats.name || '브라키오'}를 다정하게 쓰다듬어 주었어요.`);
+            HOOKS.onActionPerformed('interact_petting', { intensity, timestamp: now });
+            this.lastPetStrokeRewardAt = now;
+            this.showReaction(intensity === 'deep' ? '💞' : '✨');
+            this.fsm.evaluateState();
+        }
+
+        this.showDialogue({
+            text,
+            priority: 0,
+            ttlMs: intensity === 'deep' ? 3400 : 2800,
+            portrait,
+        });
+        this.update();
     }
 
     public async switchOverlay(target: UIOverlayState, openAction?: () => void) {
@@ -945,6 +1151,260 @@ export class UIManager {
         document.getElementById('btn-main-sleep')!.addEventListener('click', () => this.switchOverlay('SUBMENU', () => this.openReadableSubmenu('재우기', 'sleep')));
         document.getElementById('btn-main-wash')!.addEventListener('click', () => this.switchOverlay('SUBMENU', () => this.openReadableSubmenu('씻기', 'wash')));
         document.getElementById('btn-main-interact')!.addEventListener('click', () => this.switchOverlay('SUBMENU', () => this.openReadableSubmenu('교감하기', 'interact')));
+        document.getElementById('btn-main-shop')!.addEventListener('click', () => this.switchOverlay('SHOP', () => this.openShop()));
+    }
+
+    private formatResponsivePriceLabel(price: number, currency: 'gold' | 'amber') {
+        return currency === 'gold' ? `${price}G` : `💎 ${price}`;
+    }
+
+    private getResponsiveCurrencyName(currency: 'gold' | 'amber') {
+        return currency === 'gold' ? '골드' : '호박석';
+    }
+
+    private getResponsiveActionFeedback(actionId: string, res: { success: boolean, msg: string }) {
+        if (!res.success) {
+            switch (actionId) {
+                case 'feed_fern':
+                case 'feed_conifer':
+                case 'feed_vitamin':
+                case 'feed_medicine':
+                    return '지금은 먹이를 받을 준비가 덜 됐어요. 배 상태를 먼저 살펴봐 주세요.';
+                case 'train_ball':
+                case 'train_frisbee':
+                case 'train_discipline':
+                case 'train_walk':
+                case 'train_sing':
+                case 'train_dance':
+                    return '기운이 조금 모자라요. 먼저 쉬거나 먹이를 챙겨 주세요.';
+                case 'wash_face':
+                case 'wash_feet':
+                case 'wash_shower':
+                case 'wash_bath':
+                case 'wash_mud':
+                    return '지금은 씻기기 어려워 보여요. 상태가 안정되면 다시 해 봐요.';
+                case 'interact_hospital':
+                    return '병원에 가려면 골드를 조금 더 모아야 해요.';
+                default:
+                    return res.msg;
+            }
+        }
+
+        switch (actionId) {
+            case 'feed_fern': return '고사리를 먹고 배가 부드럽게 채워졌어요.';
+            case 'feed_conifer': return '든든한 먹이를 먹고 배도 기운도 찼어요.';
+            case 'feed_vitamin': return '비타민으로 컨디션을 다시 가다듬었어요.';
+            case 'feed_medicine': return '약을 챙겨 먹고 몸 상태가 한결 편안해졌어요.';
+            case 'train_ball': return '공놀이를 마치고 몸이 가볍게 풀렸어요.';
+            case 'train_frisbee': return '프리스비를 쫓아 뛰며 반응이 더 빨라졌어요.';
+            case 'train_discipline': return '집중 훈련으로 마음이 조금 더 차분해졌어요.';
+            case 'train_walk': return '산책하며 바깥 공기를 듬뿍 마셨어요.';
+            case 'train_sing': return '노래를 부르며 기분 좋은 울림을 남겼어요.';
+            case 'train_dance': return '리듬에 맞춰 신나게 몸을 흔들었어요.';
+            case 'sleep_bed':
+                return this.fsm.isSleeping
+                    ? '포근한 침대에서 금세 잠에 들었어요.'
+                    : '침대에서 몸을 일으키고 천천히 깨어났어요.';
+            case 'sleep_floor':
+                return this.fsm.isSleeping
+                    ? '아늑한 자리에 몸을 말고 조용히 잠들었어요.'
+                    : '낮잠에서 천천히 일어나 눈을 비볐어요.';
+            case 'sleep_outside':
+                return this.fsm.isSleeping
+                    ? '별빛을 보며 캠핑 자리에서 고르게 숨 쉬고 있어요.'
+                    : '바깥 공기를 머금고 상쾌하게 잠에서 깼어요.';
+            case 'wash_face': return '세수를 마치고 얼굴이 산뜻하게 반짝여요.';
+            case 'wash_feet': return '발을 깨끗하게 닦아 걸음이 다시 가벼워졌어요.';
+            case 'wash_shower': return '샤워로 먼지를 씻어 내고 개운해졌어요.';
+            case 'wash_bath': return '따뜻한 목욕을 마치고 보송보송해졌어요.';
+            case 'wash_mud': return '진흙 놀이까지 실컷 즐기고 돌아왔어요.';
+            case 'interact_praise': return '칭찬을 들으니 얼굴이 환하게 풀렸어요.';
+            case 'interact_scold': return '잠깐 풀이 죽었지만 곧 마음을 다시 고르고 있어요.';
+            case 'interact_hospital': return '병원에서 상태를 살피고 한결 안심했어요.';
+            case 'interact_pasture': return '들판으로 산책을 떠났어요. 잠시 뒤에 돌아올 거예요.';
+            default: return res.msg;
+        }
+    }
+
+    private openResponsiveSubmenu(title: string, categoryId: CategoryId) {
+        if (!this.headerCollapsed && this.shouldUseCollapsedHeader()) {
+            this.setHeaderCollapsed(true);
+        }
+
+        const items = getActionsByCategory(categoryId);
+        this.submenuTitle.innerText = title;
+        this.submenuOptions.className = 'submenu-options grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-y-auto pb-1 pr-1 sm:grid-cols-2';
+        this.submenuOptions.innerHTML = items.map((it, i) => {
+            const hasItem = this.fsm.hasItem(it.id);
+            const count = this.fsm.stats.inventory[it.id] || 0;
+            const actionEnabled = it.enabledWhen(this.fsm);
+            const sleepingBlocked = this.fsm.isSleeping && !it.id.startsWith('sleep_');
+            const isEnabled = actionEnabled && !sleepingBlocked;
+            const priceText = it.price === 0 ? '무료' : this.formatResponsivePriceLabel(it.price, it.currency);
+            const iconMarkup = getActionIconMarkup(it.id, it.icon, 'submenu-card-icon-asset');
+
+            let badgeLabel = '구매';
+            let badgeClass = 'bg-slate-100 text-slate-600';
+            let footerHint = it.price === 0 ? '언제든 바로 사용할 수 있어요' : `탭하면 ${priceText}에 준비돼요`;
+            let footerValue = priceText;
+            let footerValueClass = it.currency === 'gold' ? 'text-amber-600' : 'text-fuchsia-600';
+
+            if (it.unlockReq?.tier !== undefined && this.fsm.stats.evolutionTier < it.unlockReq.tier) {
+                badgeLabel = '잠김';
+                badgeClass = 'bg-amber-100 text-amber-700';
+                footerHint = `진화 ${it.unlockReq.tier}단계부터 열려요`;
+                footerValue = '성장 필요';
+                footerValueClass = 'text-amber-700';
+            } else if (it.unlockReq?.gold !== undefined && this.shopSystem.totalGoldEarned < it.unlockReq.gold) {
+                badgeLabel = '잠김';
+                badgeClass = 'bg-amber-100 text-amber-700';
+                footerHint = `누적 ${it.unlockReq.gold}G를 모으면 열려요`;
+                footerValue = '기록 필요';
+                footerValueClass = 'text-amber-700';
+            } else if (hasItem) {
+                if (it.isPermanent) {
+                    badgeLabel = '보유';
+                    badgeClass = 'bg-emerald-100 text-emerald-700';
+                    footerHint = '한 번 사면 계속 사용할 수 있어요';
+                    footerValue = '영구 사용';
+                    footerValueClass = 'text-emerald-700';
+                } else {
+                    badgeLabel = '보관';
+                    badgeClass = 'bg-indigo-100 text-indigo-700';
+                    footerHint = '지금 바로 사용할 수 있어요';
+                    footerValue = `${count}개 보유`;
+                    footerValueClass = 'text-indigo-700';
+                }
+            }
+
+            if (sleepingBlocked) {
+                badgeLabel = '잠자는 중';
+                badgeClass = 'bg-indigo-100 text-indigo-700';
+                footerHint = '먼저 무대의 깨우기 버튼으로 잠을 깨워 주세요';
+                footerValue = '잠깐 대기';
+                footerValueClass = 'text-indigo-700';
+            } else if (!actionEnabled) {
+                footerHint = categoryId === 'train'
+                    ? '기운을 조금 채우면 다시 할 수 있어요'
+                    : '지금은 이 행동을 하기 어려워요';
+            }
+
+            return `
+      <button class="submenu-card group ${!isEnabled ? 'opacity-60 grayscale-[0.15]' : 'hover:-translate-y-[1px] hover:shadow-md'}" id="responsive-submenu-btn-${i}">
+        <div class="submenu-card-top">
+          <span class="submenu-card-icon-shell">
+            <span class="submenu-card-icon">${iconMarkup}</span>
+          </span>
+          <div class="submenu-card-body">
+            <div class="submenu-card-title">${it.label}</div>
+            <p class="submenu-card-desc">${it.desc}</p>
+          </div>
+          <span class="submenu-card-badge ${badgeClass}">${badgeLabel}</span>
+        </div>
+        <div class="submenu-card-footer">
+          <span class="submenu-card-hint">${footerHint}</span>
+          <span class="submenu-card-value shrink-0 ${footerValueClass}">${footerValue}</span>
+        </div>
+      </button>
+    `;
+        }).join('');
+
+        items.forEach((it, i) => {
+            document.getElementById(`responsive-submenu-btn-${i}`)!.addEventListener('click', () => {
+                const sleepingBlocked = this.fsm.isSleeping && !it.id.startsWith('sleep_');
+                if (sleepingBlocked) {
+                    this.showToast('브라키오가 자고 있어요. 무대의 깨우기 버튼으로 먼저 깨워 주세요.');
+                    return;
+                }
+
+                if (!it.enabledWhen(this.fsm)) {
+                    this.showToast(categoryId === 'train' ? '기운을 조금 채우면 다시 할 수 있어요.' : '지금은 이 행동을 하기 어려워요.');
+                    return;
+                }
+
+                if (this.fsm.consumeItem(it.id)) {
+                    const res = it.onSelect(this.fsm);
+                    this.handleActionResult({ ...res, msg: this.getResponsiveActionFeedback(it.id, res) });
+                } else {
+                    if (it.unlockReq) {
+                        if (it.unlockReq.tier !== undefined && this.fsm.stats.evolutionTier < it.unlockReq.tier) {
+                            this.showToast(`진화 ${it.unlockReq.tier}단계부터 사용할 수 있어요.`);
+                            return;
+                        }
+                        if (it.unlockReq.gold !== undefined && this.shopSystem.totalGoldEarned < it.unlockReq.gold) {
+                            this.showToast(`누적 ${it.unlockReq.gold}G를 모으면 열려요.`);
+                            return;
+                        }
+                    }
+
+                    if ((it.currency === 'gold' && this.fsm.stats.gold >= it.price) ||
+                        (it.currency === 'amber' && this.fsm.stats.amber >= it.price)) {
+                        if (it.currency === 'gold') this.fsm.stats.gold -= it.price;
+                        else this.fsm.stats.amber -= it.price;
+
+                        if (it.isPermanent) {
+                            this.fsm.stats.unlockedItems.push(it.id);
+                        } else {
+                            this.fsm.stats.inventory[it.id] = (this.fsm.stats.inventory[it.id] || 0) + 1;
+                        }
+
+                        AUDIO.playClick();
+                        this.showToast(it.price === 0 ? '바로 준비했어요.' : `${this.formatResponsivePriceLabel(it.price, it.currency)}로 바로 준비했어요.`);
+                        this.fsm.consumeItem(it.id);
+                        const res = it.onSelect(this.fsm);
+                        this.handleActionResult({ ...res, msg: this.getResponsiveActionFeedback(it.id, res) });
+                    } else {
+                        AUDIO.playError();
+                        this.showToast(`${this.getResponsiveCurrencyName(it.currency)}가 조금 부족해요.`);
+                    }
+                }
+                this.update();
+            });
+        });
+
+        this.syncSubmenuOverlayBounds();
+        this.submenuOverlay.classList.remove('hidden');
+        this.submenuOverlay.classList.add('flex');
+        setTimeout(() => {
+            document.getElementById('submenu-sheet')!.classList.remove('translate-y-full');
+        }, 10);
+    }
+
+    private initResponsiveUI() {
+        const stats = ['fullness', 'happiness', 'cleanliness', 'energy'] as const;
+        const labels = ['포만감', '행복', '청결', '기운'];
+        const colors = ['bg-rose-400', 'bg-yellow-400', 'bg-sky-400', 'bg-violet-400'];
+
+        this.barsElement.innerHTML = stats.map((stat, i) => `
+      <div class="status-metric flex-1">
+        <label class="status-metric-label">${labels[i]}</label>
+        <div class="status-metric-track">
+          <div id="bar-${stat}" class="status-metric-fill h-full ${colors[i]} rounded-full transition-all duration-300 ease-out" style="width: 100%"></div>
+        </div>
+      </div>
+    `).join('');
+
+        const mainBtns = [
+            { id: 'btn-main-feed', iconKey: 'dock-feed', fallback: '🌿', text: '먹이' },
+            { id: 'btn-main-train', iconKey: 'dock-train', fallback: '⚽', text: '훈련' },
+            { id: 'btn-main-sleep', iconKey: 'dock-sleep', fallback: '🌙', text: '재우기' },
+            { id: 'btn-main-wash', iconKey: 'dock-wash', fallback: '🚿', text: '씻기' },
+            { id: 'btn-main-shop', iconKey: 'dock-shop', fallback: '🛒', text: '상점' },
+            { id: 'btn-main-interact', iconKey: 'dock-interact', fallback: '💬', text: '교감' },
+        ];
+
+        this.buttonsElement.innerHTML = mainBtns.map((button) => `
+      <button id="${button.id}" class="main-action-btn relative">
+        <span class="main-action-icon">${getActionIconMarkup(button.iconKey, button.fallback, 'main-action-icon-asset')}</span>
+        <span class="main-action-label">${button.text}</span>
+      </button>
+    `).join('');
+
+        document.getElementById('btn-main-feed')!.addEventListener('click', () => this.switchOverlay('SUBMENU', () => this.openResponsiveSubmenu('먹이 주기', 'feed')));
+        document.getElementById('btn-main-train')!.addEventListener('click', () => this.switchOverlay('SUBMENU', () => this.openResponsiveSubmenu('훈련하기', 'train')));
+        document.getElementById('btn-main-sleep')!.addEventListener('click', () => this.switchOverlay('SUBMENU', () => this.openResponsiveSubmenu('재우기', 'sleep')));
+        document.getElementById('btn-main-wash')!.addEventListener('click', () => this.switchOverlay('SUBMENU', () => this.openResponsiveSubmenu('씻기', 'wash')));
+        document.getElementById('btn-main-interact')!.addEventListener('click', () => this.switchOverlay('SUBMENU', () => this.openResponsiveSubmenu('교감하기', 'interact')));
         document.getElementById('btn-main-shop')!.addEventListener('click', () => this.switchOverlay('SHOP', () => this.openShop()));
     }
 
@@ -2126,6 +2586,17 @@ export class UIManager {
         }
 
         this.stateTextElement.innerText = this.getReadableStateBannerText();
+        const wakeButton = document.getElementById('btn-wake-pet');
+        if (wakeButton) {
+            const wakeLabel = this.fsm.sleepType === 'outside'
+                ? '캠핑 잠자리 깨우기'
+                : this.fsm.sleepType === 'bed'
+                    ? '침대에서 깨우기'
+                    : '깨우기';
+            wakeButton.classList.toggle('hidden', !this.fsm.isSleeping);
+            wakeButton.setAttribute('aria-label', wakeLabel);
+            wakeButton.title = wakeLabel;
+        }
     }
 
     private initArbeitEvents() {
