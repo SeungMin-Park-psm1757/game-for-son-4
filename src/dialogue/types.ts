@@ -3,6 +3,19 @@ export interface DialogueFollowUp {
     actionId: string; // Action catalog ID to execute
 }
 
+export type DialoguePortraitPalette = 'mint' | 'sky' | 'rose' | 'amber' | 'indigo';
+export type DialoguePortraitEyes = 'round' | 'smile' | 'sleepy' | 'sparkle' | 'soft' | 'concerned' | 'wink';
+export type DialoguePortraitMouth = 'smile' | 'open' | 'flat' | 'small' | 'heart' | 'pout';
+
+export interface DialoguePortraitAsset {
+    palette: DialoguePortraitPalette;
+    moodLabel: string;
+    badgeText: string;
+    sticker: string;
+    eyes: DialoguePortraitEyes;
+    mouth: DialoguePortraitMouth;
+}
+
 export interface DialogueContext {
     petName: string;
     personality: string;
@@ -37,4 +50,5 @@ export interface DialogueResult {
     priority: number;
     followUps?: DialogueFollowUp[];
     ttlMs: number;
+    portrait?: DialoguePortraitAsset;
 }

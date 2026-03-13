@@ -1,5 +1,6 @@
 import { DialogueContext, DialogueResult } from './types';
 import { dialogueCatalog } from './dialogueCatalog';
+import { getDialoguePortrait } from '../presentation';
 export class DialogueManager {
     private lastPlayed: Record<string, number> = {};
     private lastPhrasePlayedAt: number = 0;
@@ -169,6 +170,11 @@ export class DialogueManager {
             priority: selectedEntry.priority,
             followUps: selectedEntry.followUps,
             ttlMs,
+            portrait: getDialoguePortrait(
+                context,
+                priorityToMatch === 2 ? 'state' : priorityToMatch === 1 ? 'action' : 'idle',
+                tag,
+            ),
         };
     }
 

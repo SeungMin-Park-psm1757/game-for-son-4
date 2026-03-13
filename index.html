@@ -56,28 +56,45 @@
           </button>
         </div>
 
-        <div class="growth-panel mt-3">
-          <div class="flex items-center justify-between gap-3 text-[11px] font-bold text-slate-600">
-            <span id="growth-caption">다음 성장까지</span>
-            <span id="growth-next">6시간 남음</span>
-          </div>
-          <div class="growth-track mt-2">
-            <div id="growth-progress" class="growth-fill" style="width: 0%"></div>
-          </div>
-        </div>
-
-        <div id="care-focus-panel" class="care-focus-panel mt-3 hidden">
-          <div class="care-focus-head flex items-start justify-between gap-3">
-            <div class="min-w-0">
-              <p id="care-focus-kicker" class="care-focus-kicker">첫날 안내</p>
-              <h3 id="care-focus-title" class="care-focus-title">작은 돌봄부터 시작해요</h3>
-              <p id="care-focus-desc" class="care-focus-desc">브라키오와 친해질 첫 행동을 하나 해 보세요.</p>
+        <div class="hud-overview mt-3">
+          <div class="growth-panel">
+            <div class="growth-panel-head">
+              <p class="growth-panel-kicker">Growth</p>
+              <div class="flex items-center justify-between gap-3 text-[11px] font-bold text-slate-600">
+                <span id="growth-caption">다음 성장까지</span>
+                <span id="growth-next">6시간 남음</span>
+              </div>
             </div>
-            <span id="care-focus-status" class="care-focus-status">진행 중</span>
+            <div class="growth-track mt-2">
+              <div id="growth-progress" class="growth-fill" style="width: 0%"></div>
+            </div>
           </div>
-          <div class="care-focus-meta mt-3 flex items-center justify-between gap-3">
-            <span id="care-focus-reward" class="care-focus-reward">보상 · 20G</span>
-            <span id="care-focus-progress" class="care-focus-progress">1 / 4</span>
+
+          <div id="care-focus-panel" class="care-focus-panel hidden">
+            <div class="care-focus-head">
+              <div id="care-focus-avatar" class="mini-portrait mini-portrait-sm" data-palette="mint" data-eyes="soft" data-mouth="smile" aria-hidden="true">
+                <div class="mini-portrait-shell">
+                  <div class="mini-portrait-face">
+                    <span class="mini-portrait-eye mini-portrait-eye-left"></span>
+                    <span class="mini-portrait-eye mini-portrait-eye-right"></span>
+                    <span class="mini-portrait-mouth"></span>
+                  </div>
+                </div>
+                <span id="care-focus-sticker" class="mini-portrait-sticker">🌿</span>
+              </div>
+              <div class="min-w-0 flex-1">
+                <p id="care-focus-kicker" class="care-focus-kicker">첫날 안내</p>
+                <h3 id="care-focus-title" class="care-focus-title">작은 돌봄부터 시작해요</h3>
+                <p id="care-focus-desc" class="care-focus-desc">브라키오와 친해질 첫 행동을 하나 해 보세요.</p>
+              </div>
+            </div>
+            <div class="care-focus-meta mt-3">
+              <span id="care-focus-reward" class="care-focus-reward">보상 · 20G</span>
+              <div class="care-focus-meta-trail">
+                <span id="care-focus-progress" class="care-focus-progress">1 / 4</span>
+                <span id="care-focus-status" class="care-focus-status">진행 중</span>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -100,11 +117,6 @@
           </button>
 
           <div class="stage-card relative mt-0 flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-[2rem] sm:mt-12">
-            <div class="stage-sun"></div>
-            <div class="stage-cloud stage-cloud-a"></div>
-            <div class="stage-cloud stage-cloud-b"></div>
-            <div class="stage-hill stage-hill-back"></div>
-            <div class="stage-hill stage-hill-front"></div>
             <button id="btn-skip-animation" class="skip-animation-btn absolute right-3 top-3 z-20 hidden" type="button" aria-label="모션 건너뛰기">
               건너뛰기
             </button>

@@ -1,5 +1,6 @@
 import { FSM, PetState } from './fsm';
 import { getAgeYearsFromActiveSeconds } from './growth';
+import { getGrowthVisualProfile, getStageBackdropTheme } from './presentation';
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Expression catalog – 20 named presets using eye + mouth descriptors
@@ -141,40 +142,80 @@ export class CanvasRenderer {
         this.ctx.restore();
     }
 
+    private drawFlower(x: number, y: number, stemHeight: number, petalColor: string, centerColor: string, sway: number) {
+        const ctx = this.ctx;
+        ctx.strokeStyle = 'rgba(79, 123, 84, 0.38)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(x, y + 10);
+        ctx.lineTo(x + sway, y - stemHeight);
+        ctx.stroke();
+
+        for (let petal = 0; petal < 5; petal++) {
+            const angle = (Math.PI * 2 * petal) / 5;
+            ctx.fillStyle = petalColor;
+            ctx.beginPath();
+            ctx.ellipse(
+                x + sway + Math.cos(angle) * 6,
+                y - stemHeight + Math.sin(angle) * 6,
+                4,
+                3,
+                angle,
+                0,
+                Math.PI * 2,
+            );
+            ctx.fill();
+        }
+
+        ctx.fillStyle = centerColor;
+        ctx.beginPath();
+        ctx.arc(x + sway, y - stemHeight, 3, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
     private drawBackground(state: PetState, tickCount: number, animId?: string) {
         const ctx = this.ctx;
+        const theme = getStageBackdropTheme(this.fsm.stats.evolutionTier, this.fsm.stats.bond, state);
         ctx.clearRect(0, 0, this.width, this.height);
 
         const sky = ctx.createLinearGradient(0, 0, 0, this.height);
-        sky.addColorStop(0, '#dff5ff');
-        sky.addColorStop(0.55, '#f8fbff');
-        sky.addColorStop(1, '#f7ecd1');
+        sky.addColorStop(0, theme.skyTop);
+        sky.addColorStop(0.52, theme.skyMid);
+        sky.addColorStop(1, theme.skyBottom);
         ctx.fillStyle = sky;
         ctx.fillRect(0, 0, this.width, this.height);
 
-        const sunGlow = ctx.createRadialGradient(this.width - 82, 72, 12, this.width - 82, 72, 82);
-        sunGlow.addColorStop(0, 'rgba(255,244,177,0.95)');
-        sunGlow.addColorStop(0.5, 'rgba(255,209,115,0.35)');
+        ctx.fillStyle = theme.mist;
+        ctx.fillRect(0, 0, this.width, this.height);
+
+        const sunX = this.width - 84;
+        const sunY = this.height < 320 ? 64 : 72;
+        const sunGlow = ctx.createRadialGradient(sunX, sunY, 10, sunX, sunY, 84);
+        sunGlow.addColorStop(0, theme.sunCore);
+        sunGlow.addColorStop(0.45, theme.sunGlow);
         sunGlow.addColorStop(1, 'rgba(255,209,115,0)');
         ctx.fillStyle = sunGlow;
         ctx.beginPath();
-        ctx.arc(this.width - 82, 72, 82, 0, Math.PI * 2);
+        ctx.arc(sunX, sunY, 84, 0, Math.PI * 2);
         ctx.fill();
 
-        this.drawCloud(82 + Math.sin(tickCount / 120) * 10, 68, 1, 0.72);
-        this.drawCloud(295 - Math.sin(tickCount / 160) * 8, 108, 0.82, 0.58);
+        this.drawCloud(82 + Math.sin(tickCount / 120) * 10, 68, 1, theme.cloudAlpha);
+        this.drawCloud(295 - Math.sin(tickCount / 160) * 8, 108, 0.82, theme.cloudAlpha * 0.8);
+        if (this.fsm.stats.evolutionTier <= 1) {
+            this.drawCloud(208 + Math.sin(tickCount / 136) * 6, 48, 0.6, theme.cloudAlpha * 0.55);
+        }
 
-        ctx.fillStyle = '#b8e0b9';
+        ctx.fillStyle = theme.meadowBack;
         ctx.beginPath();
         ctx.ellipse(this.width * 0.4, this.height - 50, this.width * 0.6, 92, 0, 0, Math.PI * 2);
         ctx.fill();
 
-        ctx.fillStyle = '#7bc47f';
+        ctx.fillStyle = theme.meadowFront;
         ctx.beginPath();
         ctx.ellipse(this.width * 0.62, this.height - 26, this.width * 0.72, 104, 0, 0, Math.PI * 2);
         ctx.fill();
 
-        ctx.fillStyle = '#6aa96f';
+        ctx.fillStyle = theme.horizon;
         ctx.fillRect(0, this.height / 2 + 105, this.width, this.height);
 
         ctx.strokeStyle = 'rgba(79, 123, 84, 0.18)';
@@ -184,26 +225,37 @@ export class CanvasRenderer {
         ctx.quadraticCurveTo(this.width * 0.42, this.height / 2 + 78, this.width, this.height / 2 + 96);
         ctx.stroke();
 
-        for (let i = 0; i < 6; i++) {
-            const flowerX = 32 + i * 62 + ((tickCount / 10 + i * 13) % 14);
-            const flowerY = this.height / 2 + 115 + Math.sin((tickCount + i * 20) / 18) * 2;
-            ctx.strokeStyle = '#4f8c5c';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.moveTo(flowerX, flowerY + 10);
-            ctx.lineTo(flowerX, flowerY - 10);
-            ctx.stroke();
-            ctx.fillStyle = i % 2 === 0 ? '#fda4af' : '#fcd34d';
-            for (let petal = 0; petal < 5; petal++) {
-                const angle = (Math.PI * 2 * petal) / 5;
+        const petalPairs = [
+            ['#fda4af', '#fff1b8'],
+            ['#fcd34d', '#fff7cf'],
+            ['#93c5fd', '#e0f2fe'],
+            ['#c4b5fd', '#ede9fe'],
+        ] as const;
+
+        for (let i = 0; i < theme.flowerCount; i++) {
+            const colorPair = petalPairs[i % petalPairs.length];
+            const flowerX = 34 + i * 68 + ((tickCount / 12 + i * 11) % 10);
+            const flowerY = this.height / 2 + 116 + Math.sin((tickCount + i * 18) / 20) * 2;
+            this.drawFlower(
+                flowerX,
+                flowerY,
+                13 + (i % 3) * 2,
+                colorPair[0],
+                colorPair[1],
+                Math.sin((tickCount + i * 21) / 46) * 2,
+            );
+        }
+
+        if (this.fsm.stats.evolutionTier >= 2) {
+            ctx.fillStyle = 'rgba(89, 131, 101, 0.16)';
+            for (let i = 0; i < 3; i++) {
+                const fernX = 36 + i * 106;
+                const fernHeight = 28 + i * 6;
                 ctx.beginPath();
-                ctx.ellipse(flowerX + Math.cos(angle) * 6, flowerY - 13 + Math.sin(angle) * 6, 4, 3, angle, 0, Math.PI * 2);
-                ctx.fill();
+                ctx.moveTo(fernX, this.height - 78);
+                ctx.quadraticCurveTo(fernX - 8, this.height - 78 - fernHeight * 0.6, fernX + 6, this.height - 78 - fernHeight);
+                ctx.stroke();
             }
-            ctx.fillStyle = '#fff5b3';
-            ctx.beginPath();
-            ctx.arc(flowerX, flowerY - 13, 3, 0, Math.PI * 2);
-            ctx.fill();
         }
 
         if (this.fsm.activeEvent === 'MeteorShower') {
@@ -819,6 +871,111 @@ export class CanvasRenderer {
         }
     }
 
+    private drawGrowthStageAccents(
+        profile: ReturnType<typeof getGrowthVisualProfile>,
+        bodyRadiusX: number,
+        bodyRadiusY: number,
+        headX: number,
+        headY: number,
+        headRX: number,
+        headRY: number,
+        sizeMul: number,
+        lightColor: string,
+        darkColor: string,
+    ) {
+        const ctx = this.ctx;
+        ctx.save();
+
+        ctx.fillStyle = darkColor;
+        ctx.globalAlpha = profile.stripeOpacity;
+        ctx.beginPath();
+        ctx.ellipse(-bodyRadiusX * 0.04, 34 * sizeMul, bodyRadiusX * 0.6, bodyRadiusY * 0.36, -0.12, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse(bodyRadiusX * 0.2, 54 * sizeMul, bodyRadiusX * 0.44, bodyRadiusY * 0.26, 0.1, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+
+        ctx.fillStyle = lightColor;
+        for (let i = 0; i < profile.ridgeCount; i++) {
+            const ridgeProgress = profile.ridgeCount <= 1 ? 0 : i / (profile.ridgeCount - 1);
+            const ridgeX = -bodyRadiusX * 0.54 + ridgeProgress * bodyRadiusX * 0.74;
+            const ridgeY = 10 * sizeMul - Math.sin(ridgeProgress * Math.PI) * 8 * sizeMul;
+            const ridgeHeight = (profile.ridgeHeight - Math.abs(i - (profile.ridgeCount - 1) / 2)) * sizeMul;
+            ctx.beginPath();
+            ctx.ellipse(ridgeX, ridgeY, 5.5 * sizeMul, Math.max(5, ridgeHeight), 0, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        ctx.fillStyle = lightColor;
+        ctx.globalAlpha = 0.22;
+        ctx.beginPath();
+        ctx.ellipse(
+            headX - 3 * sizeMul,
+            headY + 11 * sizeMul,
+            12 * sizeMul * profile.cheekScale,
+            8 * sizeMul * profile.cheekScale,
+            0,
+            0,
+            Math.PI * 2,
+        );
+        ctx.fill();
+        ctx.globalAlpha = 1;
+
+        if (profile.id === 'teen' || profile.id === 'adult') {
+            ctx.strokeStyle = this.lightenColor(darkColor, 20);
+            ctx.lineWidth = 2.2 * sizeMul;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            ctx.moveTo(headX - headRX * 0.15, headY - headRY * 0.7);
+            ctx.quadraticCurveTo(headX + headRX * 0.15, headY - headRY * 1.02, headX + headRX * 0.48, headY - headRY * 0.2);
+            ctx.stroke();
+        }
+
+        if (profile.id === 'adult') {
+            ctx.strokeStyle = this.lightenColor(lightColor, 10);
+            ctx.lineWidth = 2.4 * sizeMul;
+            ctx.beginPath();
+            ctx.moveTo(-bodyRadiusX * 0.34, 18 * sizeMul);
+            ctx.quadraticCurveTo(-bodyRadiusX * 0.04, 3 * sizeMul, bodyRadiusX * 0.24, 20 * sizeMul);
+            ctx.stroke();
+        }
+
+        ctx.restore();
+    }
+
+    private drawStateAmbientAccent(state: PetState, tickCount: number, sizeMul: number, headX: number, headY: number, bodyRadiusX: number) {
+        if (this.fsm.activeAnimation) return;
+
+        switch (state) {
+            case 'Hungry':
+                this.drawEmoji('🌿', headX + 44 * sizeMul, headY - 10 * sizeMul + Math.sin(tickCount / 22) * 4, 22 * sizeMul, 0, 0.86);
+                this.ctx.strokeStyle = 'rgba(120, 88, 27, 0.34)';
+                this.ctx.lineWidth = 2 * sizeMul;
+                this.ctx.beginPath();
+                this.ctx.arc(0, 54 * sizeMul, bodyRadiusX * 0.18, Math.PI * 0.15, Math.PI * 0.85);
+                this.ctx.stroke();
+                break;
+            case 'Sleepy':
+                this.drawEmoji('🌙', headX + 42 * sizeMul, headY - 28 * sizeMul + Math.sin(tickCount / 25) * 3, 18 * sizeMul, 0, 0.88);
+                this.drawSparkle(headX + 58 * sizeMul, headY - 42 * sizeMul, 8 * sizeMul, '#c4b5fd', 0.78);
+                break;
+            case 'Sick':
+                this.drawEmoji('💧', headX + 34 * sizeMul, headY - 14 * sizeMul + Math.sin(tickCount / 18) * 3, 18 * sizeMul, 0, 0.75);
+                break;
+            case 'Naughty':
+                this.drawSparkle(headX + 48 * sizeMul, headY - 22 * sizeMul, 9 * sizeMul, '#f59e0b', 0.86);
+                break;
+            case 'Idle':
+                if (this.fsm.stats.bond >= 70 && tickCount % 160 < 78) {
+                    this.drawHeart(headX + 34 * sizeMul, headY - 16 * sizeMul - Math.sin(tickCount / 16) * 3, 10 * sizeMul, '#fb7185', 0.72);
+                } else if (this.fsm.stats.happiness >= 78 && tickCount % 180 < 80) {
+                    this.drawSparkle(headX + 44 * sizeMul, headY - 18 * sizeMul, 8 * sizeMul, '#fde68a', 0.82);
+                }
+                break;
+        }
+    }
+
 
     /** Full face render based on expression key */
     private renderFace(
@@ -883,6 +1040,8 @@ export class CanvasRenderer {
         const roundness = headRoundness(ageYears);
         const headSize = headSizeFactor(ageYears);
         const speedDiv = legSpeedDivisor(ageYears);
+        const growthProfile = getGrowthVisualProfile(this.fsm.stats.evolutionTier, this.fsm.stats.bond);
+        const paceDiv = speedDiv / growthProfile.strideScale;
 
         // ── Base body dimensions ──────────────────────────────────────────
         const minWeight = 50, maxWeight = 150;
@@ -1083,7 +1242,8 @@ export class CanvasRenderer {
         const flipH = !animation && this.fsm.wanderTargetX < this.fsm.wanderX;
 
         const stageGroundRatio = this.height < 300 ? 0.675 : this.height < 360 ? 0.69 : 0.72;
-        const stageGroundY = this.height * stageGroundRatio;
+        const stageGroundAdjust = growthProfile.id === 'baby' ? -0.03 : growthProfile.id === 'adult' ? 0.01 : 0;
+        const stageGroundY = this.height * (stageGroundRatio + stageGroundAdjust);
         this.ctx.translate(renderX, stageGroundY + breath + bodyOscillationY);
         if (flipH) this.ctx.scale(-1, 1);
 
@@ -1102,22 +1262,22 @@ export class CanvasRenderer {
         const tier = this.fsm.stats.evolutionTier;
 
         // ── Geometry ──────────────────────────────────────────────────────
-        const bodyRadiusX = BASE_BRX;
-        const bodyRadiusY = BASE_BRY * poseProfile.bodyScaleY;
+        const bodyRadiusX = BASE_BRX * growthProfile.bodyScaleX;
+        const bodyRadiusY = BASE_BRY * poseProfile.bodyScaleY * growthProfile.bodyScaleY;
 
         // Neck length & head position scale with age
-        const neckLen = (60 + tier * 35) * sizeMul * poseProfile.neckScale;
+        const neckLen = (60 + tier * 35) * sizeMul * poseProfile.neckScale * growthProfile.neckScale;
         const headX = (28 + headOscillationX) * sizeMul;
         const headY = -neckLen + headOscillationY;
 
         // Head shape: younger = rounder
-        const headRX = 26 * sizeMul * headSize;
+        const headRX = 26 * sizeMul * headSize * growthProfile.headScale;
         const headRY = headRX * roundness;
-        const snoutRX = 17 * sizeMul * Math.max(0.92, headSize * 0.9);
+        const snoutRX = 17 * sizeMul * Math.max(0.92, headSize * 0.9) * Math.max(0.94, growthProfile.headScale * 0.98);
         const snoutRY = 11.5 * sizeMul * Math.max(0.92, roundness * 0.96);
 
         // Face scale for expressions
-        const faceScale = sizeMul * Math.max(1.18, headSize * 0.98);
+        const faceScale = sizeMul * Math.max(1.18, headSize * 0.98) * Math.max(0.96, growthProfile.headScale);
 
         // Eye positions
         const eye1X = headX - 12 * sizeMul;
@@ -1138,7 +1298,12 @@ export class CanvasRenderer {
         this.ctx.lineCap = 'round';
         this.ctx.beginPath();
         this.ctx.moveTo(-bodyRadiusX + 18, 40 * sizeMul);
-        this.ctx.quadraticCurveTo(-bodyRadiusX - 25, 35 * sizeMul, -bodyRadiusX - 42 * sizeMul - tier * 8 * sizeMul, 60 * sizeMul + tailWag);
+        this.ctx.quadraticCurveTo(
+            -bodyRadiusX - 25,
+            35 * sizeMul - growthProfile.tailLift * 0.35 * sizeMul,
+            -bodyRadiusX - 42 * sizeMul - tier * 8 * sizeMul,
+            60 * sizeMul + tailWag - growthProfile.tailLift * sizeMul,
+        );
         this.ctx.stroke();
         this.drawDirtSpot(-bodyRadiusX - 14, 48 * sizeMul + tailWag * 0.5, 22, 11, this.fsm.stats.spotDirt.tail, 'tail');
 
@@ -1205,6 +1370,7 @@ export class CanvasRenderer {
 
         // Body dirt
         this.drawDirtSpot(0, 42 * sizeMul, bodyRadiusX, bodyRadiusY, this.fsm.stats.spotDirt.body, 'body');
+        this.drawGrowthStageAccents(growthProfile, bodyRadiusX, bodyRadiusY, headX, headY, headRX, headRY, sizeMul, lightColor, darkColor);
 
         // ─── 5. FRONT LEGS ────────────────────────────────────────────────
         // Leg animation
@@ -1238,12 +1404,12 @@ export class CanvasRenderer {
                     break;
             }
         } else if (Math.abs(this.fsm.wanderTargetX - this.fsm.wanderX) > 1) {
-            legOffset1 = Math.sin(motionTick / speedDiv) * 8.5;
-            legOffset2 = Math.cos(motionTick / speedDiv) * 8.5;
+            legOffset1 = Math.sin(motionTick / paceDiv) * 8.5;
+            legOffset2 = Math.cos(motionTick / paceDiv) * 8.5;
         } else if (state === 'Idle') {
             const mood = (this.fsm.stats.happiness + this.fsm.stats.energy) / 200;
             if (mood > 0.7) {
-                const stompSpeed = speedDiv * 1.4; // slightly slower than walk
+                const stompSpeed = paceDiv * 1.4; // slightly slower than walk
                 legOffset1 = Math.sin(motionTick / stompSpeed) * (2.5 + mood * 2.2);
                 legOffset2 = Math.cos(motionTick / stompSpeed) * (2.5 + mood * 2.2);
             }
@@ -1346,6 +1512,7 @@ export class CanvasRenderer {
         }
 
         this.renderFace(exprKey, headX, headY, eye1X, eye2X, eyeY, mouthX, mouthY, faceScale, isBlinking);
+        this.drawStateAmbientAccent(state, motionTick, sizeMul, headX, headY, bodyRadiusX);
 
         // Dancing music note
         if (isDancing && !animation && motionTick % 35 === 0) {

@@ -8,7 +8,7 @@ import { AUDIO } from './audio';
 import { HOOKS } from './events/hooks';
 import { DialogueManager } from './dialogue/DialogueManager';
 import { getPetTapPattern } from './dialogue/petTapDialogues';
-import { DialogueContext, DialogueResult } from './dialogue/types';
+import { DialogueContext, DialoguePortraitAsset, DialogueResult } from './dialogue/types';
 import { MinigameRunner } from './minigames/MinigameRunner';
 import { SortBaskets } from './minigames/SortBaskets';
 import { MemoryPairs } from './minigames/MemoryPairs';
@@ -18,6 +18,7 @@ import { MG_BALANCE } from './minigameBalance';
 import { MathQuizEngine, MathQuestion, MATH_QUIZ_GOLD, MATH_QUIZ_AMBER_BONUS } from './MathQuiz';
 import { getActiveSecondsForAge } from './growth';
 import { describeRewardBundle, type GameMoment } from './progression';
+import { CARE_STYLE_GUIDE, getBondTier, getDialoguePortrait, getGrowthStageId } from './presentation';
 
 export type UIOverlayState = 'NONE' | 'SUBMENU' | 'SHOP' | 'QUIZ' | 'ARBEIT' | 'ENCYCLOPEDIA' | 'MINIGAME' | 'CANVAS_MG' | 'INTRO' | 'DEATH';
 
@@ -329,6 +330,7 @@ export class UIManager {
             text,
             priority: 0,
             ttlMs: 3200,
+            portrait: getDialoguePortrait(context, 'tap'),
         });
     }
 
@@ -455,6 +457,51 @@ export class UIManager {
         if (reward) reward.textContent = `유대감 · 하트 ${this.fsm.stats.bond}`;
         if (status) status.textContent = '안정적';
         if (progress) progress.textContent = `기억 ${Math.max(1, this.fsm.stats.memories.length)}장`;
+    }
+
+    private applyPortraitAsset(
+        root: HTMLElement | null,
+        asset: DialoguePortraitAsset | null,
+        extras: {
+            sticker?: HTMLElement | null;
+            mood?: HTMLElement | null;
+            badge?: HTMLElement | null;
+        } = {},
+    ) {
+        if (!root || !asset) return;
+
+        root.dataset.palette = asset.palette;
+        root.dataset.eyes = asset.eyes;
+        root.dataset.mouth = asset.mouth;
+
+        const sticker = extras.sticker ?? root.querySelector('.mini-portrait-sticker');
+        if (sticker) {
+            sticker.textContent = asset.sticker;
+        }
+
+        if (extras.mood) {
+            extras.mood.textContent = asset.moodLabel;
+        }
+
+        if (extras.badge) {
+            extras.badge.textContent = asset.badgeText;
+        }
+    }
+
+    private syncPresentationState() {
+        const bondTier = getBondTier(this.fsm.stats.bond);
+        const growthStage = getGrowthStageId(this.fsm.stats.evolutionTier);
+        this.appRoot.dataset.bondTier = bondTier;
+        this.appRoot.dataset.growthStage = growthStage;
+        this.appRoot.dataset.petState = this.fsm.currentState.toLowerCase();
+        document.getElementById('bond-badge')?.setAttribute('data-bond-tier', bondTier);
+
+        const carePortrait = getDialoguePortrait(
+            this.getDialogueContext(),
+            this.fsm.currentState === 'Idle' ? 'tap' : 'state',
+            this.fsm.currentState,
+        );
+        this.applyPortraitAsset(document.getElementById('care-focus-avatar'), carePortrait);
     }
 
     private formatDurationLabelKr(seconds: number) {
@@ -825,6 +872,23 @@ export class UIManager {
           </div>
         </section>`;
 
+        const styleGuideHtml = `
+        <section class="mb-5">
+          <h3 class="mb-3 flex items-center gap-1 text-sm font-black text-slate-700">🎨 스타일 기준</h3>
+          <div class="rounded-[1.6rem] border border-sky-100 bg-[linear-gradient(180deg,#f5fbff_0%,#ffffff_100%)] p-4 shadow-sm">
+            <div class="grid grid-cols-1 gap-3">
+              ${CARE_STYLE_GUIDE.pillars.map((pillar) => `
+                <div class="rounded-2xl bg-white px-3 py-3 text-[11px] font-semibold leading-5 text-slate-600 shadow-sm">${pillar}</div>
+              `).join('')}
+            </div>
+            <div class="mt-4 flex flex-col gap-2">
+              ${CARE_STYLE_GUIDE.paletteLanes.map((lane) => `
+                <div class="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-500">${lane}</div>
+              `).join('')}
+            </div>
+          </div>
+        </section>`;
+
         const bondHtml = `
         <section class="mb-5">
           <h3 class="mb-3 flex items-center gap-1 text-sm font-black text-slate-700">💛 유대감</h3>
@@ -925,7 +989,7 @@ export class UIManager {
           </div>
         </section>`;
 
-        encContent.innerHTML = comfortHtml + bondHtml + pmHtml + personalitiesHtml + passivesHtml;
+        encContent.innerHTML = comfortHtml + styleGuideHtml + bondHtml + pmHtml + personalitiesHtml + passivesHtml;
 
         document.getElementById('btn-toggle-comfort-mode')?.addEventListener('click', () => {
             this.toggleComfortMode();
@@ -1337,6 +1401,7 @@ export class UIManager {
         document.getElementById('bond-badge')!.textContent = `하트 ${s.bond} · ${this.fsm.getBondTitle()}`;
         document.getElementById('bond-badge')!.classList.remove('hidden');
         this.updateCareFocusPanel();
+        this.syncPresentationState();
 
         if (this.animationSkipButton) {
             const showSkip = !!this.fsm.activeAnimation && this.currentOverlay === 'NONE';
@@ -1648,20 +1713,41 @@ export class UIManager {
     private initSpeechBubble() {
         this.speechBubble = document.createElement('div');
         this.speechBubble.id = 'speech-bubble';
-        this.speechBubble.className = 'absolute top-[4.5rem] left-1/2 -translate-x-1/2 w-11/12 max-w-sm bg-white/95 backdrop-blur-sm border-2 border-indigo-200 rounded-3xl p-4 shadow-xl z-50 flex flex-col gap-3 transition-opacity duration-300 opacity-0 pointer-events-none';
+        this.speechBubble.className = 'speech-bubble opacity-0 pointer-events-none';
 
         const tail = document.createElement('div');
-        tail.className = 'absolute -bottom-3 left-1/2 -translate-x-1/2 w-6 h-6 bg-white/95 border-r-2 border-b-2 border-indigo-200 rotate-45';
+        tail.className = 'speech-bubble-tail';
         this.speechBubble.appendChild(tail);
+
+        const portraitCard = document.createElement('div');
+        portraitCard.id = 'speech-portrait-card';
+        portraitCard.className = 'speech-portrait-card';
+        portraitCard.innerHTML = `
+          <div id="speech-portrait" class="mini-portrait" data-palette="mint" data-eyes="soft" data-mouth="smile" aria-hidden="true">
+            <div class="mini-portrait-shell">
+              <div class="mini-portrait-face">
+                <span class="mini-portrait-eye mini-portrait-eye-left"></span>
+                <span class="mini-portrait-eye mini-portrait-eye-right"></span>
+                <span class="mini-portrait-mouth"></span>
+              </div>
+            </div>
+            <span id="speech-sticker" class="mini-portrait-sticker">🌿</span>
+          </div>
+          <div class="speech-portrait-meta">
+            <p id="speech-mood" class="speech-portrait-mood">차분한 시선</p>
+            <p id="speech-badge" class="speech-portrait-badge">살짝 집중 중</p>
+          </div>
+        `;
+        this.speechBubble.appendChild(portraitCard);
 
         const textContainer = document.createElement('div');
         textContainer.id = 'speech-text';
-        textContainer.className = 'text-slate-700 font-bold text-sm leading-relaxed text-center break-keep relative z-10';
+        textContainer.className = 'speech-text';
         this.speechBubble.appendChild(textContainer);
 
         const optsContainer = document.createElement('div');
         optsContainer.id = 'speech-options';
-        optsContainer.className = 'flex gap-2 justify-center relative z-10';
+        optsContainer.className = 'speech-options';
         this.speechBubble.appendChild(optsContainer);
 
         document.getElementById('app')!.appendChild(this.speechBubble);
@@ -1764,14 +1850,28 @@ export class UIManager {
     private showDialogue(res: DialogueResult) {
         const textContainer = document.getElementById('speech-text')!;
         const optsContainer = document.getElementById('speech-options')!;
+        const portrait = res.portrait ?? getDialoguePortrait(
+            this.getDialogueContext(),
+            res.priority >= 2 ? 'state' : res.priority === 1 ? 'action' : 'tap',
+            this.fsm.currentState,
+        );
 
         textContainer.innerText = res.text;
+        this.applyPortraitAsset(
+            document.getElementById('speech-portrait'),
+            portrait,
+            {
+                sticker: document.getElementById('speech-sticker'),
+                mood: document.getElementById('speech-mood'),
+                badge: document.getElementById('speech-badge'),
+            },
+        );
 
         optsContainer.innerHTML = '';
         if (res.followUps && res.followUps.length > 0) {
             res.followUps.slice(0, 2).forEach(f => {
                 const btn = document.createElement('button');
-                btn.className = 'bg-indigo-50 border border-indigo-200 text-indigo-700 px-3 py-1.5 rounded-xl text-xs font-bold shadow-sm pointer-events-auto active:scale-95';
+                btn.className = 'speech-option-btn';
                 btn.innerText = f.label;
                 btn.onclick = (e) => {
                     e.stopPropagation();
