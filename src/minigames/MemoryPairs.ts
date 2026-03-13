@@ -28,6 +28,7 @@ export class MemoryPairs implements Minigame {
     private hintUsed = false;
     private hintActive = false;
     private hintTimer = 0;
+    private pendingPair: { a: number; b: number; matched: boolean } | null = null;
 
     // Feedback
     private feedbackText = '';
@@ -49,6 +50,7 @@ export class MemoryPairs implements Minigame {
         this.hintActive = false;
         this.hintTimer = 0;
         this.feedbackText = '';
+        this.pendingPair = null;
 
         const symbols = MG_BALANCE.MEMORY.CARD_SYMBOLS;
         const deck: string[] = [];
@@ -91,28 +93,9 @@ export class MemoryPairs implements Minigame {
     private checkMatch() {
         const a = this.firstIdx!;
         const b = this.secondIdx!;
-        if (this.cards[a].symbol === this.cards[b].symbol) {
-            // Match!
-            this.lockMs = 300;
-            setTimeout(() => {
-                if (this.cards[a]) this.cards[a].state = 'matched';
-                if (this.cards[b]) this.cards[b].state = 'matched';
-                this.matches++;
-                this.showFeedback('✨ 매치!', '#16a34a');
-                this.firstIdx = null;
-                this.secondIdx = null;
-                if (this.matches >= 8) this.done = true;
-            }, 300);
-        } else {
-            // No match — lock then flip back
-            this.lockMs = MG_BALANCE.MEMORY.FLIP_BACK_DELAY_MS;
-            setTimeout(() => {
-                if (this.cards[a]) this.cards[a].state = 'hidden';
-                if (this.cards[b]) this.cards[b].state = 'hidden';
-                this.firstIdx = null;
-                this.secondIdx = null;
-            }, MG_BALANCE.MEMORY.FLIP_BACK_DELAY_MS);
-        }
+        const matched = this.cards[a].symbol === this.cards[b].symbol;
+        this.pendingPair = { a, b, matched };
+        this.lockMs = matched ? 300 : MG_BALANCE.MEMORY.FLIP_BACK_DELAY_MS;
     }
 
     private showFeedback(text: string, color: string) {
@@ -148,7 +131,25 @@ export class MemoryPairs implements Minigame {
     update(dtMs: number) {
         if (this.done) return;
         this.elapsed += dtMs;
-        if (this.lockMs > 0) this.lockMs = Math.max(0, this.lockMs - dtMs);
+        if (this.lockMs > 0) {
+            this.lockMs = Math.max(0, this.lockMs - dtMs);
+            if (this.lockMs === 0 && this.pendingPair) {
+                const { a, b, matched } = this.pendingPair;
+                if (matched) {
+                    if (this.cards[a]) this.cards[a].state = 'matched';
+                    if (this.cards[b]) this.cards[b].state = 'matched';
+                    this.matches++;
+                    this.showFeedback('✨ 매치!', '#16a34a');
+                    if (this.matches >= 8) this.done = true;
+                } else {
+                    if (this.cards[a]) this.cards[a].state = 'hidden';
+                    if (this.cards[b]) this.cards[b].state = 'hidden';
+                }
+                this.firstIdx = null;
+                this.secondIdx = null;
+                this.pendingPair = null;
+            }
+        }
         if (this.feedbackTimer > 0) this.feedbackTimer -= dtMs;
 
         if (this.hintActive) {
@@ -264,6 +265,10 @@ export class MemoryPairs implements Minigame {
     }
 
     isDone() { return this.done; }
+
+    getTimerText() {
+        return Math.max(0, Math.ceil((this.durationMs - this.elapsed) / 1000)).toString();
+    }
 
     getResult(): MinigameResult {
         const goldEarned = this.matches * MG_BALANCE.MEMORY.GOLD_PER_MATCH;

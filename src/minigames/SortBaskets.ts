@@ -249,6 +249,10 @@ export class SortBaskets implements Minigame {
         return this.done;
     }
 
+    getTimerText() {
+        return Math.max(0, Math.ceil((this.durationMs - this.elapsed) / 1000)).toString();
+    }
+
     getResult(): MinigameResult {
         const goldEarned = this.score * MG_BALANCE.SORT.GOLD_PER_POINT + this.comboBonus;
         const amberEarned = Math.floor(this.score / MG_BALANCE.SORT.AMBER_DIVISOR);

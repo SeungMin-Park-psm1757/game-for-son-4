@@ -2,6 +2,16 @@ export const MG_BALANCE = {
     DAILY_PLAY_LIMIT: 10,
     QUIT_CONFIRM: true,
 
+    FRUIT: {
+        ROUNDS_PER_SESSION: 6,
+        SPEED_MULTIPLIER: 1.1,
+        RESTART_DELAY_MS: 900,
+        SUMMARY_DELAY_MS: 850,
+        AMBER_PERFECT_THRESHOLD: 3,
+        AMBER_REWARD: 1,
+        BOND_REWARD: 2,
+    },
+
     SORT: {
         DURATION_S: 20,
         MAX_MISTAKES: 999,

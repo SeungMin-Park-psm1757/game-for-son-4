@@ -14,11 +14,13 @@ export class MinigameRunner {
     private boundDown: (e: PointerEvent) => void;
     private boundMove: (e: PointerEvent) => void;
     private boundUp: (e: PointerEvent) => void;
+    private boundResize: () => void;
 
     constructor() {
         this.boundDown = (e) => { e.preventDefault(); this.game?.handlePointerDown(e); };
         this.boundMove = (e) => { e.preventDefault(); this.game?.handlePointerMove(e); };
         this.boundUp = (e) => { e.preventDefault(); this.game?.handlePointerUp(e); };
+        this.boundResize = () => this.resizeCanvas();
     }
 
     start(
@@ -46,6 +48,7 @@ export class MinigameRunner {
         canvas.addEventListener('pointerdown', this.boundDown, { passive: false });
         canvas.addEventListener('pointermove', this.boundMove, { passive: false });
         canvas.addEventListener('pointerup', this.boundUp, { passive: false });
+        window.addEventListener('resize', this.boundResize);
 
         this.lastTime = performance.now();
         this.loop(this.lastTime);
@@ -54,14 +57,16 @@ export class MinigameRunner {
     private resizeCanvas() {
         const c = this.canvas!;
         const rect = c.getBoundingClientRect();
-        c.width = Math.floor(rect.width * devicePixelRatio);
-        c.height = Math.floor(rect.height * devicePixelRatio);
-        this.ctx!.scale(devicePixelRatio, devicePixelRatio);
+        const dpr = Math.max(1, window.devicePixelRatio || 1);
+        c.width = Math.max(1, Math.floor(rect.width * dpr));
+        c.height = Math.max(1, Math.floor(rect.height * dpr));
+        this.ctx = c.getContext('2d')!;
+        this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
 
     /** Logical width/height (CSS pixels) */
-    private get logicalW() { return this.canvas!.width / devicePixelRatio; }
-    private get logicalH() { return this.canvas!.height / devicePixelRatio; }
+    private get logicalW() { return this.canvas!.width / Math.max(1, window.devicePixelRatio || 1); }
+    private get logicalH() { return this.canvas!.height / Math.max(1, window.devicePixelRatio || 1); }
 
     private loop = (now: number) => {
         const dt = now - this.lastTime;
@@ -71,6 +76,10 @@ export class MinigameRunner {
 
         this.game.update(dt);
 
+        if (this.timerEl) {
+            this.timerEl.textContent = this.game.getTimerText ? this.game.getTimerText() : '';
+        }
+
         const ctx = this.ctx;
         const w = this.logicalW;
         const h = this.logicalH;
@@ -78,8 +87,9 @@ export class MinigameRunner {
         this.game.render(ctx, w, h);
 
         if (this.game.isDone()) {
+            const finishedGame = this.game;
             this.stop();
-            const result = this.game.getResult();
+            const result = finishedGame.getResult();
             if (this.onDone) this.onDone(result);
             return;
         }
@@ -97,6 +107,7 @@ export class MinigameRunner {
             this.canvas.removeEventListener('pointermove', this.boundMove);
             this.canvas.removeEventListener('pointerup', this.boundUp);
         }
+        window.removeEventListener('resize', this.boundResize);
         this.game = null;
     }
 

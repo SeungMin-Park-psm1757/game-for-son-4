@@ -48,6 +48,8 @@ export class UIManager {
     private submenuTitle: HTMLElement;
     private appRoot: HTMLElement;
     private hudPanel: HTMLElement | null;
+    private headerToggleButton: HTMLButtonElement | null;
+    private mainCanvasElement: HTMLElement | null;
 
     private arbeitOverlay: HTMLElement;
     private minigameOverlay: HTMLElement;
@@ -78,6 +80,13 @@ export class UIManager {
     private petTapPatternKey = '';
     private petTapLines: string[] = [];
     private petTapIndex = 0;
+    private headerCollapsed = false;
+    private headerGestureStartY: number | null = null;
+    private headerGestureStartX: number | null = null;
+    private fruitRestartTimer: number | null = null;
+    private fruitSessionRounds = 0;
+    private fruitSessionGold = 0;
+    private fruitSessionPerfects = 0;
 
     constructor(private fsm: FSM) {
         this.barsElement = document.getElementById('status-bars')!;
@@ -98,6 +107,8 @@ export class UIManager {
         this.submenuTitle = document.getElementById('submenu-title')!;
         this.appRoot = document.getElementById('app')!;
         this.hudPanel = document.querySelector('.hud-panel');
+        this.headerToggleButton = document.getElementById('btn-header-toggle') as HTMLButtonElement | null;
+        this.mainCanvasElement = document.getElementById('main-canvas');
 
         this.arbeitOverlay = document.getElementById('arbeit-overlay')!;
         this.minigameOverlay = document.getElementById('minigame-overlay')!;
@@ -106,6 +117,7 @@ export class UIManager {
         this.canvasMgOverlay = document.getElementById('canvas-mg-overlay')!;
 
         this.mountSubmenuOverlay();
+        this.mountFullscreenOverlays();
 
         this.initUI();
         this.initQuizEvents();
@@ -114,6 +126,7 @@ export class UIManager {
         this.initNotifications();
         this.initComfortMode();
         this.initHUDButtons();
+        this.initHeaderInteractions();
         this.initIntroEvents();
         this.initAnimationSkip();
         this.applyComfortMode();
@@ -243,12 +256,107 @@ export class UIManager {
         window.addEventListener('resize', () => this.syncSubmenuOverlayBounds());
     }
 
+    private mountFullscreenOverlays() {
+        [
+            this.quizOverlay,
+            this.arbeitOverlay,
+            this.minigameOverlay,
+            this.canvasMgOverlay,
+        ].forEach((overlay) => {
+            if (overlay.parentElement !== this.appRoot) {
+                this.appRoot.appendChild(overlay);
+            }
+        });
+    }
+
     private syncSubmenuOverlayBounds() {
         const appRect = this.appRoot.getBoundingClientRect();
         const headerRect = this.hudPanel?.getBoundingClientRect();
         const topInset = headerRect ? Math.max(0, headerRect.bottom - appRect.top + 8) : 0;
         this.submenuOverlay.style.top = `${topInset}px`;
         this.submenuOverlay.style.bottom = '0px';
+    }
+
+    private shouldUseCollapsedHeader() {
+        return window.innerWidth <= 640 || window.innerHeight <= 860;
+    }
+
+    private setHeaderCollapsed(collapsed: boolean, force = false) {
+        if (!force && this.headerCollapsed === collapsed) return;
+        this.headerCollapsed = collapsed;
+        this.appRoot.classList.toggle('header-collapsed', collapsed);
+
+        if (this.headerToggleButton) {
+            const label = document.getElementById('hud-toggle-label');
+            if (label) {
+                label.textContent = collapsed ? '아래로 당겨 펼치기' : '캐릭터 보기';
+            }
+            this.headerToggleButton.setAttribute('aria-expanded', String(!collapsed));
+            this.headerToggleButton.setAttribute('aria-label', collapsed ? '헤더 펼치기' : '헤더 접기');
+        }
+
+        this.syncSubmenuOverlayBounds();
+    }
+
+    private syncHeaderMode(force = false) {
+        if (!this.shouldUseCollapsedHeader()) {
+            this.setHeaderCollapsed(false, true);
+            return;
+        }
+
+        if (force) {
+            this.setHeaderCollapsed(true, true);
+        } else {
+            this.syncSubmenuOverlayBounds();
+        }
+    }
+
+    private initHeaderInteractions() {
+        this.headerToggleButton?.addEventListener('click', () => {
+            if (!this.shouldUseCollapsedHeader()) return;
+            this.setHeaderCollapsed(!this.headerCollapsed);
+        });
+
+        const clearGesture = () => {
+            this.headerGestureStartY = null;
+            this.headerGestureStartX = null;
+        };
+
+        const handlePointerRelease = (event: PointerEvent) => {
+            if (this.currentOverlay !== 'NONE') {
+                clearGesture();
+                return;
+            }
+
+            if (this.headerGestureStartY === null || this.headerGestureStartX === null) {
+                return;
+            }
+
+            const dy = event.clientY - this.headerGestureStartY;
+            const dx = Math.abs(event.clientX - this.headerGestureStartX);
+            clearGesture();
+
+            if (dx > 32 || !this.shouldUseCollapsedHeader()) return;
+
+            if (this.headerCollapsed && dy > 30) {
+                this.setHeaderCollapsed(false);
+            } else if (!this.headerCollapsed && dy < -20) {
+                this.setHeaderCollapsed(true);
+            }
+        };
+
+        this.mainCanvasElement?.addEventListener('pointerdown', (event) => {
+            if (this.currentOverlay !== 'NONE') return;
+            if ((event.target as HTMLElement).closest('button')) return;
+            this.headerGestureStartY = event.clientY;
+            this.headerGestureStartX = event.clientX;
+        });
+
+        window.addEventListener('pointerup', handlePointerRelease);
+        window.addEventListener('pointercancel', clearGesture);
+
+        window.addEventListener('resize', () => this.syncHeaderMode());
+        this.syncHeaderMode(true);
     }
 
     private initComfortMode() {
@@ -301,6 +409,9 @@ export class UIManager {
         document.getElementById('pet-canvas')?.addEventListener('click', (event) => {
             if (this.currentOverlay !== 'NONE') return;
             AUDIO.init();
+            if (this.headerCollapsed === false && this.shouldUseCollapsedHeader()) {
+                this.setHeaderCollapsed(true);
+            }
             if (this.fsm.activeAnimation) {
                 event.stopPropagation();
                 skipAnimation();
@@ -350,6 +461,12 @@ export class UIManager {
             'INTRO': document.getElementById('intro-overlay'),
             'DEATH': document.getElementById('death-overlay')
         };
+
+        if (this.currentOverlay === 'MINIGAME') {
+            this.stopMinigame();
+        } else if (this.currentOverlay === 'CANVAS_MG') {
+            this.stopCanvasMinigame();
+        }
 
         // Close current
         if (this.currentOverlay !== 'NONE') {
@@ -686,6 +803,9 @@ export class UIManager {
     }
 
     private openSubmenu(title: string, categoryId: CategoryId) {
+        if (!this.headerCollapsed && this.shouldUseCollapsedHeader()) {
+            this.setHeaderCollapsed(true);
+        }
         const items = getActionsByCategory(categoryId);
         this.submenuTitle.innerText = title;
         this.submenuOptions.className = 'submenu-options grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-y-auto pb-1 pr-1 sm:grid-cols-2';
@@ -1524,11 +1644,13 @@ export class UIManager {
                 this.showToast(`과일따기는 ${hrs}시간 후에 다시 가능해요! 🍎`);
                 return;
             }
+            this.resetFruitMinigameSession();
             this.switchOverlay('MINIGAME', () => this.startMinigame());
         });
 
         document.getElementById('btn-close-minigame')!.addEventListener('click', () => {
             this.stopMinigame();
+            this.resetFruitMinigameSession();
             this.switchOverlay('ARBEIT');
         });
 
@@ -1566,6 +1688,52 @@ export class UIManager {
 
     private _memoryGameRef: MemoryPairs | null = null;
 
+    private clearFruitRestartTimer() {
+        if (this.fruitRestartTimer !== null) {
+            window.clearTimeout(this.fruitRestartTimer);
+            this.fruitRestartTimer = null;
+        }
+    }
+
+    private resetFruitMinigameSession() {
+        this.clearFruitRestartTimer();
+        this.fruitSessionRounds = 0;
+        this.fruitSessionGold = 0;
+        this.fruitSessionPerfects = 0;
+        this.mgCombo = 0;
+        const comboEl = document.getElementById('minigame-combo');
+        if (comboEl) {
+            comboEl.innerText = `라운드 1/${MG_BALANCE.FRUIT.ROUNDS_PER_SESSION} · 콤보 0`;
+        }
+    }
+
+    private finalizeFruitMinigameSession() {
+        this.clearFruitRestartTimer();
+        this.stopMinigame();
+
+        const amberEarned = this.fruitSessionPerfects >= MG_BALANCE.FRUIT.AMBER_PERFECT_THRESHOLD
+            ? MG_BALANCE.FRUIT.AMBER_REWARD
+            : 0;
+
+        if (amberEarned > 0) {
+            this.fsm.rewardAmber(amberEarned);
+        }
+
+        this.fsm.rewardBond(MG_BALANCE.FRUIT.BOND_REWARD, '과일 따기를 함께 마쳤어요.');
+        this.fsm.recordGamePlayed('fruit_pick');
+        this.update();
+
+        const summary = [
+            `🍎 ${this.fruitSessionRounds}번`,
+            `💰 ${this.fruitSessionGold}`,
+            amberEarned > 0 ? `💎 ${amberEarned}` : '',
+        ].filter(Boolean).join(' · ');
+
+        this.showToast(`과일 따기 완료! ${summary}`);
+        this.resetFruitMinigameSession();
+        this.switchOverlay('ARBEIT');
+    }
+
     private startCanvasMinigame(gameId: MinigameId) {
         if (!this.fsm.canPlayGame(gameId)) {
             const ms = this.fsm.getGameCooldownRemaining(gameId);
@@ -1575,6 +1743,7 @@ export class UIManager {
             return;
         }
 
+        this.stopCanvasMinigame();
         this.currentCanvasGame = gameId;
         this.switchOverlay('CANVAS_MG', () => {
             const canvas = document.getElementById('mg-canvas') as HTMLCanvasElement;
@@ -1601,19 +1770,20 @@ export class UIManager {
             }
 
             this.canvasMgRunner = new MinigameRunner();
-            this.canvasMgRunner.start(game, canvas, timerEl, titleEl, (result) => {
-                this.fsm.rewardGold(result.goldEarned);
-                if (result.amberEarned > 0) this.fsm.rewardAmber(result.amberEarned);
-                this.fsm.rewardBond(3, '함께 미니게임을 즐겼어요.');
-                this.shopSystem.recordGoldEarned(result.goldEarned);
-                this.fsm.recordGamePlayed(gameId); // 4-hour cooldown
-                this.update();
+            window.requestAnimationFrame(() => {
+                this.canvasMgRunner?.start(game, canvas, timerEl, titleEl, (result) => {
+                    this.stopCanvasMinigame();
+                    this.fsm.rewardGold(result.goldEarned);
+                    if (result.amberEarned > 0) this.fsm.rewardAmber(result.amberEarned);
+                    this.fsm.rewardBond(3, '함께 미니게임을 즐겼어요.');
+                    this.shopSystem.recordGoldEarned(result.goldEarned);
+                    this.fsm.recordGamePlayed(gameId);
+                    this.update();
 
-                const amberStr = result.amberEarned > 0 ? ` · 💎 ${result.amberEarned}` : '';
-                setTimeout(() => {
+                    const amberStr = result.amberEarned > 0 ? ` · 💎 ${result.amberEarned}` : '';
                     this.showToast(`아르바이트 완료! 💰 ${result.goldEarned}${amberStr}`);
                     this.switchOverlay('ARBEIT');
-                }, 400);
+                });
             });
         });
     }
@@ -1628,6 +1798,7 @@ export class UIManager {
     }
 
     private startMinigame() {
+        this.clearFruitRestartTimer();
         if (!this.fsm.canPlayMinigame()) {
             document.getElementById('minigame-limit-msg')!.classList.remove('hidden');
             document.getElementById('minigame-game-area')!.classList.add('hidden');
@@ -1643,8 +1814,8 @@ export class UIManager {
         this.mgPos = 0;
         this.mgDir = 1;
 
-        this.mgSpeed = 0.72 + (this.mgCombo * 0.08);
-        document.getElementById('minigame-combo')!.innerText = `콤보: ${this.mgCombo}`;
+        this.mgSpeed = (0.72 + (this.mgCombo * 0.08)) * MG_BALANCE.FRUIT.SPEED_MULTIPLIER;
+        document.getElementById('minigame-combo')!.innerText = `라운드 ${Math.min(MG_BALANCE.FRUIT.ROUNDS_PER_SESSION, this.fruitSessionRounds + 1)}/${MG_BALANCE.FRUIT.ROUNDS_PER_SESSION} · 콤보 ${this.mgCombo}`;
 
         if (this.mgLoop !== null) cancelAnimationFrame(this.mgLoop);
 
@@ -1659,6 +1830,7 @@ export class UIManager {
     }
 
     private stopMinigame() {
+        this.clearFruitRestartTimer();
         if (this.mgLoop !== null) cancelAnimationFrame(this.mgLoop);
         this.mgLoop = null;
     }
@@ -1683,8 +1855,9 @@ export class UIManager {
             this.mgResult.className = 'text-xl font-bold h-8 text-center mt-4 text-emerald-600 animate-bounce';
             this.fsm.rewardGold(gold);
             this.shopSystem.recordGoldEarned(gold);
+            this.fruitSessionGold += gold;
+            this.fruitSessionPerfects++;
             this.mgCombo++;
-            if (this.mgCombo === 1) this.fsm.recordGamePlayed('fruit_pick'); // 1회 기록은 첫 성공 시
         } else if (isSuccess) {
             AUDIO.playSuccess();
             const gold = hitGolds[comboSlot];
@@ -1692,22 +1865,35 @@ export class UIManager {
             this.mgResult.className = 'text-xl font-bold h-8 text-center mt-4 text-blue-600 animate-bounce';
             this.fsm.rewardGold(gold);
             this.shopSystem.recordGoldEarned(gold);
+            this.fruitSessionGold += gold;
             this.mgCombo++;
-            if (this.mgCombo === 1) this.fsm.recordGamePlayed('fruit_pick');
         } else {
             AUDIO.playError();
             this.mgResult.innerText = '💦 아쉽다! 콤보가 끊겼어.';
             this.mgResult.className = 'text-xl font-bold h-8 text-center mt-4 text-rose-500';
             this.fsm.rewardGold(1);
+            this.shopSystem.recordGoldEarned(1);
+            this.fruitSessionGold += 1;
             this.mgCombo = 0;
         }
 
+        this.fruitSessionRounds++;
         this.update();
-        setTimeout(() => {
+
+        if (this.fruitSessionRounds >= MG_BALANCE.FRUIT.ROUNDS_PER_SESSION) {
+            this.fruitRestartTimer = window.setTimeout(() => {
+                if (!this.minigameOverlay.classList.contains('hidden')) {
+                    this.finalizeFruitMinigameSession();
+                }
+            }, MG_BALANCE.FRUIT.SUMMARY_DELAY_MS);
+            return;
+        }
+
+        this.fruitRestartTimer = window.setTimeout(() => {
             if (!this.minigameOverlay.classList.contains('hidden')) {
                 this.startMinigame();
             }
-        }, 1200);
+        }, MG_BALANCE.FRUIT.RESTART_DELAY_MS);
     }
 
     private initSpeechBubble() {

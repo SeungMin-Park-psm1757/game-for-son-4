@@ -255,6 +255,10 @@ export class TracePath implements Minigame {
         return this.done;
     }
 
+    getTimerText() {
+        return Math.max(0, Math.ceil((this.durationMs - this.elapsed) / 1000)).toString();
+    }
+
     getResult(): MinigameResult {
         return {
             score: this.score,

@@ -34,4 +34,7 @@ export interface Minigame {
 
     /** 최종 결과 반환 */
     getResult(): MinigameResult;
+
+    /** 상단 타이머 표시용 문자열 */
+    getTimerText?(): string;
 }
