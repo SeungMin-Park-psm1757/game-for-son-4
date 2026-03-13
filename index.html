@@ -28,13 +28,17 @@
             <p class="hud-subtitle text-[11px] font-semibold text-slate-500">핸드폰 속에서 함께 자라는 작은 브라키오</p>
           </div>
 
-          <div class="flex items-start gap-2">
+          <div class="hud-actions flex items-start gap-2">
             <button id="btn-noti-perm" class="icon-chip" title="알림 켜기" aria-label="알림 켜기">
               🔔
             </button>
 
             <button id="btn-comfort-mode" class="icon-chip text-[0.72rem] font-black tracking-[-0.02em]" title="편안 모드 꺼짐" aria-label="편안 모드 켜기" aria-pressed="false">
               Aa
+            </button>
+
+            <button id="btn-reset-game" class="icon-chip" title="게임 초기화" aria-label="게임 초기화">
+              ↺
             </button>
 
             <button id="btn-currency" class="currency-card" aria-label="상점 열기">
@@ -122,7 +126,7 @@
             <span>수첩</span>
           </button>
 
-          <div class="stage-card relative mt-0 flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-[2rem] sm:mt-12">
+          <div id="stage-card" class="stage-card relative mt-0 flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-[2rem] sm:mt-12">
             <button id="btn-skip-animation" class="skip-animation-btn absolute right-3 top-3 z-20 hidden" type="button" aria-label="모션 건너뛰기">
               건너뛰기
             </button>

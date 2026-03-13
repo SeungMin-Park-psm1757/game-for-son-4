@@ -18,7 +18,7 @@ import { MG_BALANCE } from './minigameBalance';
 import { MathQuizEngine, MathQuestion, MATH_QUIZ_GOLD, MATH_QUIZ_AMBER_BONUS } from './MathQuiz';
 import { getActiveSecondsForAge } from './growth';
 import { describeRewardBundle, type GameMoment } from './progression';
-import { CARE_STYLE_GUIDE, getBondTier, getDialoguePortrait, getGrowthStageId } from './presentation';
+import { CARE_STYLE_GUIDE, getBondTier, getGrowthStageId, getReadableDialoguePortrait } from './presentation';
 
 export type UIOverlayState = 'NONE' | 'SUBMENU' | 'SHOP' | 'QUIZ' | 'ARBEIT' | 'ENCYCLOPEDIA' | 'MINIGAME' | 'CANVAS_MG' | 'INTRO' | 'DEATH';
 
@@ -50,6 +50,7 @@ export class UIManager {
     private hudPanel: HTMLElement | null;
     private headerToggleButton: HTMLButtonElement | null;
     private mainCanvasElement: HTMLElement | null;
+    private stageCardElement: HTMLElement | null;
 
     private arbeitOverlay: HTMLElement;
     private minigameOverlay: HTMLElement;
@@ -109,6 +110,7 @@ export class UIManager {
         this.hudPanel = document.querySelector('.hud-panel');
         this.headerToggleButton = document.getElementById('btn-header-toggle') as HTMLButtonElement | null;
         this.mainCanvasElement = document.getElementById('main-canvas');
+        this.stageCardElement = document.getElementById('stage-card');
 
         this.arbeitOverlay = document.getElementById('arbeit-overlay')!;
         this.minigameOverlay = document.getElementById('minigame-overlay')!;
@@ -119,7 +121,7 @@ export class UIManager {
         this.mountSubmenuOverlay();
         this.mountFullscreenOverlays();
 
-        this.initUI();
+        this.initReadableUI();
         this.initQuizEvents();
         this.initShopEvents();
         this.initArbeitEvents();
@@ -162,6 +164,16 @@ export class UIManager {
         this.initSpeechBubble();
         this.initMomentOverlay();
         this.initDeathOverlay();
+        // Keep legacy methods referenced while the new readable/mobile-first variants are phased in.
+        void [
+            this.formatDurationLabelKr,
+            this.getStageLabelKr,
+            this.getSeasonLabelKr,
+            this.getStateBannerText,
+            this.getActionFeedback,
+            this.initUI,
+            this.openEncyclopedia,
+        ];
 
         HOOKS.subscribeAction((actionId) => {
             const dRes = this.dialogueManager.triggerActionReact(actionId, this.getDialogueContext());
@@ -223,10 +235,25 @@ export class UIManager {
             });
         }
 
+        const btnReset = document.getElementById('btn-reset-game');
+        if (btnReset) {
+            btnReset.addEventListener('click', async () => {
+                const firstConfirm = confirm('정말 처음부터 다시 시작할까요?');
+                if (!firstConfirm) return;
+
+                const secondConfirm = confirm('브라키오의 기록, 재화, 추억이 모두 사라집니다. 그래도 초기화할까요?');
+                if (!secondConfirm) return;
+
+                const { StorageManager } = await import('./storage');
+                await StorageManager.clear();
+                window.location.reload();
+            });
+        }
+
         const btnEnc = document.getElementById('btn-encyclopedia');
         if (btnEnc) {
             btnEnc.addEventListener('click', () => {
-                this.switchOverlay('ENCYCLOPEDIA', () => this.openEncyclopedia());
+                this.switchOverlay('ENCYCLOPEDIA', () => this.openReadableEncyclopedia());
             });
         }
 
@@ -289,7 +316,7 @@ export class UIManager {
         if (this.headerToggleButton) {
             const label = document.getElementById('hud-toggle-label');
             if (label) {
-                label.textContent = collapsed ? '아래로 당겨 펼치기' : '캐릭터 보기';
+                label.textContent = collapsed ? '아래로 당겨 펼치기' : '위로 밀어 접기';
             }
             this.headerToggleButton.setAttribute('aria-expanded', String(!collapsed));
             this.headerToggleButton.setAttribute('aria-label', collapsed ? '헤더 펼치기' : '헤더 접기');
@@ -352,6 +379,13 @@ export class UIManager {
             this.headerGestureStartX = event.clientX;
         });
 
+        this.hudPanel?.addEventListener('pointerdown', (event) => {
+            if (this.currentOverlay !== 'NONE') return;
+            if ((event.target as HTMLElement).closest('button')) return;
+            this.headerGestureStartY = event.clientY;
+            this.headerGestureStartX = event.clientX;
+        });
+
         window.addEventListener('pointerup', handlePointerRelease);
         window.addEventListener('pointercancel', clearGesture);
 
@@ -375,7 +409,7 @@ export class UIManager {
         this.update();
 
         if (this.currentOverlay === 'ENCYCLOPEDIA') {
-            this.openEncyclopedia();
+            this.openReadableEncyclopedia();
         }
 
         this.showToast(next ? '편안 모드를 켰어요. 글자가 조금 커지고 움직임이 잔잔해져요.' : '편안 모드를 껐어요.');
@@ -441,7 +475,7 @@ export class UIManager {
             text,
             priority: 0,
             ttlMs: 3200,
-            portrait: getDialoguePortrait(context, 'tap'),
+            portrait: getReadableDialoguePortrait(context, 'tap'),
         });
     }
 
@@ -613,12 +647,478 @@ export class UIManager {
         this.appRoot.dataset.petState = this.fsm.currentState.toLowerCase();
         document.getElementById('bond-badge')?.setAttribute('data-bond-tier', bondTier);
 
-        const carePortrait = getDialoguePortrait(
+        const carePortrait = getReadableDialoguePortrait(
             this.getDialogueContext(),
             this.fsm.currentState === 'Idle' ? 'tap' : 'state',
             this.fsm.currentState,
         );
         this.applyPortraitAsset(document.getElementById('care-focus-avatar'), carePortrait);
+    }
+
+    private formatReadableDurationLabelKr(seconds: number) {
+        const totalMinutes = Math.max(0, Math.ceil(seconds / 60));
+        const hours = Math.floor(totalMinutes / 60);
+        const minutes = totalMinutes % 60;
+
+        if (hours > 0 && minutes > 0) return `${hours}시간 ${minutes}분`;
+        if (hours > 0) return `${hours}시간`;
+        return `${Math.max(1, minutes)}분`;
+    }
+
+    private getReadableStageLabelKr() {
+        const stages = ['아기', '어린', '청소년', '어른'];
+        return stages[this.fsm.stats.evolutionTier] || '어른';
+    }
+
+    private getReadableSeasonLabelKr() {
+        const month = new Date().getMonth() + 1;
+        if (month >= 3 && month <= 5) return '봄';
+        if (month >= 6 && month <= 8) return '여름';
+        if (month >= 9 && month <= 11) return '가을';
+        return '겨울';
+    }
+
+    private getReadableStateBannerText() {
+        const name = this.fsm.stats.name || '브라키오';
+        const affectionate = this.fsm.stats.bond >= 45;
+        const sleepPlace = this.fsm.sleepType === 'bed'
+            ? '포근한 침대에서'
+            : this.fsm.sleepType === 'outside'
+                ? '별빛 캠핑 자리에서'
+                : '낮은 자리에서';
+
+        switch (this.fsm.currentState) {
+            case 'Idle':
+                return affectionate
+                    ? `${name}가 네 쪽을 보며 안심하고 있어요 💞`
+                    : `${name}가 오늘은 차분한 얼굴로 쉬고 있어요 🌿`;
+            case 'Hungry':
+                return `${name}가 배고픈 눈빛으로 간식을 기다리고 있어요 🌿`;
+            case 'Dirty':
+                return `${name}를 깨끗하게 씻겨 주면 다시 반짝일 거예요 🫧`;
+            case 'Sleepy':
+                return `${name}가 졸린 눈으로 하품하며 쉬고 싶어 해요 🌙`;
+            case 'Sleep':
+                return `${name}가 ${sleepPlace} 곤히 잠들어 있어요 🌙`;
+            case 'Quiz':
+                return `${name}가 문제를 풀며 집중하고 있어요 📚`;
+            case 'Naughty':
+                return `${name}가 장난칠 타이밍을 보고 있어요 😼`;
+            case 'Sick':
+                return `${name}의 컨디션이 처져 보여요. 상태를 살펴봐 주세요 💊`;
+            default:
+                return `${name}가 네 곁에서 숨을 고르고 있어요.`;
+        }
+    }
+
+    private formatPriceLabel(price: number, currency: 'gold' | 'amber') {
+        return currency === 'gold' ? `${price}G` : `💎 ${price}`;
+    }
+
+    private getCurrencyName(currency: 'gold' | 'amber') {
+        return currency === 'gold' ? '골드' : '호박석';
+    }
+
+    private getReadableActionFeedback(actionId: string, res: { success: boolean, msg: string }) {
+        if (!res.success) {
+            switch (actionId) {
+                case 'feed_fern':
+                case 'feed_conifer':
+                case 'feed_vitamin':
+                case 'feed_medicine':
+                    return '지금은 먹이를 받기 어려워요. 포만감과 컨디션을 먼저 확인해 주세요.';
+                case 'train_ball':
+                case 'train_frisbee':
+                case 'train_discipline':
+                case 'train_walk':
+                case 'train_sing':
+                case 'train_dance':
+                    return '기운이 조금 부족해요. 먼저 쉬거나 먹이를 주세요.';
+                case 'wash_face':
+                case 'wash_feet':
+                case 'wash_shower':
+                case 'wash_bath':
+                case 'wash_mud':
+                    return '지금은 씻기기 어려워요. 상태가 안정되면 다시 해볼게요.';
+                case 'interact_hospital':
+                    return '병원에 가려면 골드가 조금 더 필요해요.';
+                default:
+                    return res.msg;
+            }
+        }
+
+        switch (actionId) {
+            case 'feed_fern': return '고사리를 냠냠 먹으며 배가 든든해졌어요.';
+            case 'feed_conifer': return '침엽수 간식으로 배와 기운을 함께 채웠어요.';
+            case 'feed_vitamin': return '비타민으로 컨디션을 다잡았어요.';
+            case 'feed_medicine': return '특효약을 먹고 기운을 조금 회복했어요.';
+            case 'train_ball': return '공놀이를 마치고 몸이 가볍게 풀렸어요.';
+            case 'train_frisbee': return '프리스비를 멋지게 받아냈어요.';
+            case 'train_discipline': return '집중 훈련으로 차분함을 쌓았어요.';
+            case 'train_walk': return '산책을 다녀오며 바깥 공기를 실컷 마셨어요.';
+            case 'train_sing': return '콧노래를 부르며 기분이 한결 좋아졌어요.';
+            case 'train_dance': return '리듬에 맞춰 신나게 몸을 흔들었어요.';
+            case 'sleep_bed':
+                return this.fsm.isSleeping
+                    ? '포근한 침대에서 금세 잠들었어요.'
+                    : '침대에서 눈을 뜨고 천천히 몸을 폈어요.';
+            case 'sleep_floor':
+                return this.fsm.isSleeping
+                    ? '낮은 자리에서 조용히 잠들었어요.'
+                    : '바닥 낮잠에서 깨어나 몸을 털었어요.';
+            case 'sleep_outside':
+                return this.fsm.isSleeping
+                    ? '캠핑 자리에서 별빛을 보며 잠들었어요.'
+                    : '야외 공기를 머금고 상쾌하게 일어났어요.';
+            case 'wash_face': return '세수를 마치고 얼굴이 산뜻해졌어요.';
+            case 'wash_feet': return '발을 깨끗하게 닦아 걸음이 가벼워졌어요.';
+            case 'wash_shower': return '샤워로 먼지를 털어내고 개운해졌어요.';
+            case 'wash_bath': return '따뜻한 목욕을 마치고 반짝반짝해졌어요.';
+            case 'wash_mud': return '진흙 놀이까지 실컷 즐기고 돌아왔어요.';
+            case 'interact_praise': return '칭찬을 듣고 얼굴이 환해졌어요.';
+            case 'interact_scold': return '조금 삐졌지만 금세 다시 마음을 고를 거예요.';
+            case 'interact_hospital': return '병원에서 상태를 살피고 한결 편안해졌어요.';
+            case 'interact_pasture': return '들판으로 산책을 떠났어요. 잠시 뒤에 돌아올 거예요.';
+            default: return res.msg;
+        }
+    }
+
+    private openReadableSubmenu(title: string, categoryId: CategoryId) {
+        if (!this.headerCollapsed && this.shouldUseCollapsedHeader()) {
+            this.setHeaderCollapsed(true);
+        }
+
+        const items = getActionsByCategory(categoryId);
+        this.submenuTitle.innerText = title;
+        this.submenuOptions.className = 'submenu-options grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-y-auto pb-1 pr-1 sm:grid-cols-2';
+        this.submenuOptions.innerHTML = items.map((it, i) => {
+            const hasItem = this.fsm.hasItem(it.id);
+            const count = this.fsm.stats.inventory[it.id] || 0;
+            const isEnabled = it.enabledWhen(this.fsm);
+            const priceText = this.formatPriceLabel(it.price, it.currency);
+
+            let badgeLabel = '구매';
+            let badgeClass = 'bg-slate-100 text-slate-600';
+            let footerHint = `탭하면 ${priceText}에 준비돼요`;
+            let footerValue = priceText;
+            let footerValueClass = it.currency === 'gold' ? 'text-amber-600' : 'text-fuchsia-600';
+
+            if (it.unlockReq?.tier !== undefined && this.fsm.stats.evolutionTier < it.unlockReq.tier) {
+                badgeLabel = '잠김';
+                badgeClass = 'bg-amber-100 text-amber-700';
+                footerHint = `진화 ${it.unlockReq.tier}단계부터 열려요`;
+                footerValue = '성장 필요';
+                footerValueClass = 'text-amber-700';
+            } else if (it.unlockReq?.gold !== undefined && this.shopSystem.totalGoldEarned < it.unlockReq.gold) {
+                badgeLabel = '잠김';
+                badgeClass = 'bg-amber-100 text-amber-700';
+                footerHint = `누적 ${it.unlockReq.gold}G를 모으면 열려요`;
+                footerValue = '기록 필요';
+                footerValueClass = 'text-amber-700';
+            } else if (hasItem) {
+                if (it.isPermanent) {
+                    badgeLabel = '보유';
+                    badgeClass = 'bg-emerald-100 text-emerald-700';
+                    footerHint = '한 번 사면 계속 사용할 수 있어요';
+                    footerValue = '영구 사용';
+                    footerValueClass = 'text-emerald-700';
+                } else {
+                    badgeLabel = '보관';
+                    badgeClass = 'bg-indigo-100 text-indigo-700';
+                    footerHint = '지금 바로 사용할 수 있어요';
+                    footerValue = `${count}개 보유`;
+                    footerValueClass = 'text-indigo-700';
+                }
+            }
+
+            if (!isEnabled) {
+                footerHint = categoryId === 'train'
+                    ? '기운을 조금 채우면 다시 할 수 있어요'
+                    : '지금은 이 행동을 하기 어려워요';
+            }
+
+            return `
+      <button class="submenu-card group ${!isEnabled ? 'opacity-55 grayscale' : 'hover:-translate-y-[1px] hover:shadow-md'}" id="submenu-btn-${i}">
+        <div class="submenu-card-top">
+          <span class="submenu-card-icon">${it.icon}</span>
+          <div class="submenu-card-body">
+            <div class="submenu-card-title">${it.label}</div>
+            <p class="submenu-card-desc">${it.desc}</p>
+          </div>
+          <span class="submenu-card-badge ${badgeClass}">${badgeLabel}</span>
+        </div>
+        <div class="submenu-card-footer">
+          <span class="submenu-card-hint">${footerHint}</span>
+          <span class="submenu-card-value shrink-0 ${footerValueClass}">${footerValue}</span>
+        </div>
+      </button>
+    `;
+        }).join('');
+
+        items.forEach((it, i) => {
+            document.getElementById(`submenu-btn-${i}`)!.addEventListener('click', () => {
+                if (!it.enabledWhen(this.fsm)) {
+                    this.showToast(categoryId === 'train' ? '기운을 조금 채우면 다시 할 수 있어요.' : '지금은 이 행동을 하기 어려워요.');
+                    return;
+                }
+
+                if (this.fsm.consumeItem(it.id)) {
+                    const res = it.onSelect(this.fsm);
+                    this.handleActionResult({ ...res, msg: this.getReadableActionFeedback(it.id, res) });
+                } else {
+                    if (it.unlockReq) {
+                        if (it.unlockReq.tier !== undefined && this.fsm.stats.evolutionTier < it.unlockReq.tier) {
+                            this.showToast(`진화 ${it.unlockReq.tier}단계부터 사용할 수 있어요.`);
+                            return;
+                        }
+                        if (it.unlockReq.gold !== undefined && this.shopSystem.totalGoldEarned < it.unlockReq.gold) {
+                            this.showToast(`누적 ${it.unlockReq.gold}G를 모으면 열려요.`);
+                            return;
+                        }
+                    }
+
+                    if ((it.currency === 'gold' && this.fsm.stats.gold >= it.price) ||
+                        (it.currency === 'amber' && this.fsm.stats.amber >= it.price)) {
+                        if (it.currency === 'gold') this.fsm.stats.gold -= it.price;
+                        else this.fsm.stats.amber -= it.price;
+
+                        if (it.isPermanent) {
+                            this.fsm.stats.unlockedItems.push(it.id);
+                        } else {
+                            this.fsm.stats.inventory[it.id] = (this.fsm.stats.inventory[it.id] || 0) + 1;
+                        }
+
+                        AUDIO.playClick();
+                        this.showToast(`${this.formatPriceLabel(it.price, it.currency)}로 바로 준비했어요.`);
+                        this.fsm.consumeItem(it.id);
+                        const res = it.onSelect(this.fsm);
+                        this.handleActionResult({ ...res, msg: this.getReadableActionFeedback(it.id, res) });
+                    } else {
+                        AUDIO.playError();
+                        this.showToast(`${this.getCurrencyName(it.currency)}가 조금 부족해요.`);
+                    }
+                }
+                this.update();
+            });
+        });
+
+        this.syncSubmenuOverlayBounds();
+        this.submenuOverlay.classList.remove('hidden');
+        this.submenuOverlay.classList.add('flex');
+        setTimeout(() => {
+            document.getElementById('submenu-sheet')!.classList.remove('translate-y-full');
+        }, 10);
+    }
+
+    private initReadableUI() {
+        const stats = ['fullness', 'happiness', 'cleanliness', 'energy'] as const;
+        const labels = ['포만감', '행복', '청결', '기운'];
+        const colors = ['bg-rose-400', 'bg-yellow-400', 'bg-sky-400', 'bg-violet-400'];
+
+        this.barsElement.innerHTML = stats.map((stat, i) => `
+      <div class="status-metric flex-1">
+        <label class="status-metric-label">${labels[i]}</label>
+        <div class="status-metric-track">
+          <div id="bar-${stat}" class="status-metric-fill h-full ${colors[i]} rounded-full transition-all duration-300 ease-out" style="width: 100%"></div>
+        </div>
+      </div>
+    `).join('');
+
+        const mainBtns = [
+            { id: 'btn-main-feed', icon: '🌿', text: '먹이', menu: 'feed' },
+            { id: 'btn-main-train', icon: '🎾', text: '훈련', menu: 'train' },
+            { id: 'btn-main-sleep', icon: '🌙', text: '재우기', menu: 'sleep' },
+            { id: 'btn-main-wash', icon: '🚿', text: '씻기', menu: 'wash' },
+            { id: 'btn-main-shop', icon: '🛒', text: '상점', menu: 'shop' },
+            { id: 'btn-main-interact', icon: '💬', text: '교감', menu: 'interact' },
+        ];
+
+        this.buttonsElement.innerHTML = mainBtns.map((button) => `
+      <button id="${button.id}" class="main-action-btn relative">
+        <span class="main-action-icon">${button.icon}</span>
+        <span class="main-action-label">${button.text}</span>
+      </button>
+    `).join('');
+
+        document.getElementById('btn-main-feed')!.addEventListener('click', () => this.switchOverlay('SUBMENU', () => this.openReadableSubmenu('먹이 주기', 'feed')));
+        document.getElementById('btn-main-train')!.addEventListener('click', () => this.switchOverlay('SUBMENU', () => this.openReadableSubmenu('훈련하기', 'train')));
+        document.getElementById('btn-main-sleep')!.addEventListener('click', () => this.switchOverlay('SUBMENU', () => this.openReadableSubmenu('재우기', 'sleep')));
+        document.getElementById('btn-main-wash')!.addEventListener('click', () => this.switchOverlay('SUBMENU', () => this.openReadableSubmenu('씻기', 'wash')));
+        document.getElementById('btn-main-interact')!.addEventListener('click', () => this.switchOverlay('SUBMENU', () => this.openReadableSubmenu('교감하기', 'interact')));
+        document.getElementById('btn-main-shop')!.addEventListener('click', () => this.switchOverlay('SHOP', () => this.openShop()));
+    }
+
+    private openReadableEncyclopedia() {
+        const encOverlay = document.getElementById('encyclopedia-overlay')!;
+        const encContent = document.getElementById('enc-content')!;
+        const comfortEnabled = this.fsm.isComfortModeEnabled();
+        const petName = this.fsm.stats.name || '브라키오';
+        const memories = this.fsm.stats.memories.length
+            ? this.fsm.stats.memories.map((memory) => `<li class="rounded-2xl bg-white px-3 py-2 text-[11px] font-semibold text-slate-600 shadow-sm">${memory}</li>`).join('')
+            : '<li class="rounded-2xl bg-white px-3 py-2 text-[11px] font-semibold text-slate-500 shadow-sm">아직 특별한 기억은 천천히 쌓이는 중이에요.</li>';
+
+        const pm = this.fsm.stats.pmStats;
+        const pmDefs = [
+            { key: 'health', icon: '❤️', label: '건강', color: '#ef4444' },
+            { key: 'athletics', icon: '⚽', label: '운동', color: '#f59e0b' },
+            { key: 'intellect', icon: '🧠', label: '지능', color: '#6366f1' },
+            { key: 'elegance', icon: '👑', label: '품위', color: '#ec4899' },
+            { key: 'discipline', icon: '📏', label: '절제', color: '#14b8a6' },
+            { key: 'charm', icon: '✨', label: '친화', color: '#f97316' },
+        ] as const;
+
+        const personalityCopy = {
+            Normal: { label: '평범한', description: '무난하고 안정적인 기본 성향이에요.' },
+            Active: { label: '활발한', description: '몸을 움직이는 걸 좋아하고 놀아주면 금방 신이 나요.' },
+            Lazy: { label: '느긋한', description: '에너지를 천천히 쓰고 쉬는 시간을 잘 즐겨요.' },
+            Smart: { label: '똑똑한', description: '짧은 문제와 규칙을 금방 익히는 편이에요.' },
+            Gluttonous: { label: '식탐왕', description: '먹는 즐거움을 크게 느끼고 배고픔도 빨리 와요.' },
+            Clean: { label: '깔끔쟁이', description: '몸이 더러워지는 걸 싫어해서 씻겨주면 특히 좋아해요.' },
+            Naughty: { label: '장난꾸러기', description: '호기심이 많아 가끔 말썽도 부리지만 매력이 있어요.' },
+            Gentle: { label: '온순한', description: '쉽게 흥분하지 않고 부드럽게 반응해요.' },
+            Lonely: { label: '외로움 타는', description: '관심과 칭찬을 자주 받으면 더 안정돼요.' },
+        } as const;
+
+        const unlocked = this.fsm.stats.unlockedPersonalities || ['Normal'];
+        const allPassives = [
+            { flag: 'hasGastroliths', icon: '🪨', name: '위석', desc: '먹이를 먹을 때 포만감이 조금 더 오래가요.', how: '중반 성장 구간에서 자연스럽게 열려요.' },
+            { flag: 'hasAirSacs', icon: '💨', name: '공기주머니', desc: '활동 후 숨 고르기가 조금 더 수월해져요.', how: '성장과 함께 몸 구조가 단단해지면 생겨요.' },
+            { flag: 'scaleScutes', icon: '🛡️', name: '등 비늘', desc: '청결이 떨어지는 속도를 조금 늦춰줘요.', how: '씻기 루틴을 자주 챙겨 주면 열려요.' },
+            { flag: 'thickSkin', icon: '🧸', name: '튼튼한 피부', desc: '거친 활동 뒤에 컨디션이 덜 흔들려요.', how: '자주 씻기고 돌봐 주면 단단해져요.' },
+            { flag: 'longNeck', icon: '🦕', name: '긴 목', desc: '든든한 먹이를 먹을 때 만족감이 더 커져요.', how: '먹이 루틴을 꾸준히 쌓으면 열려요.' },
+            { flag: 'strongTail', icon: '🌪️', name: '강한 꼬리', desc: '신나는 놀이를 마치고도 기분이 오래 남아요.', how: '훈련을 많이 해 주면 몸놀림이 안정돼요.' },
+            { flag: 'sharpSense', icon: '👀', name: '예리한 감각', desc: '몸 상태가 흔들릴 때 빨리 반응할 수 있어요.', how: '비타민과 회복 루틴을 챙기면 열려요.' },
+            { flag: 'fastMetabolism', icon: '🔥', name: '빠른 회복', desc: '좋은 잠자리에서 에너지 회복이 조금 빨라져요.', how: '편안한 잠을 자주 재워 주면 열려요.' },
+            { flag: 'mudLover', icon: '🌧️', name: '진흙 애호가', desc: '진흙 놀이 뒤에도 기분이 크게 떨어지지 않아요.', how: '진흙 놀이를 자주 즐기면 열려요.' },
+        ] as const;
+
+        const styleGuidePillars = [
+            '브라키오의 표정과 상태가 숫자보다 먼저 읽히도록 만든다.',
+            'HUD는 돌봄 흐름만 남기고 장식보다 정보 위계를 우선한다.',
+            '모션은 과장보다 안정감을 유지하고, 편안 모드에서는 더 잔잔해진다.',
+        ];
+
+        const styleGuideLanes = [
+            'care: 민트와 하늘색으로 안정과 회복을 표현한다.',
+            'bond: 로즈와 피치로 유대감과 따뜻함을 표현한다.',
+            'alert: 샌드와 인디고로 성장과 주의 신호를 분리한다.',
+        ];
+
+        const comfortHtml = `
+        <section class="mb-5">
+          <h3 class="mb-3 flex items-center gap-1 text-sm font-black text-slate-700">편안 모드</h3>
+          <div class="rounded-[1.6rem] border border-emerald-100 bg-[linear-gradient(180deg,#f3fff9_0%,#ffffff_100%)] p-4 shadow-sm">
+            <div class="flex items-center justify-between gap-3">
+              <div>
+                <p class="text-[11px] font-black uppercase tracking-[0.18em] text-emerald-500">Comfort</p>
+                <h4 class="mt-1 text-base font-black tracking-[-0.04em] text-slate-900">${comfortEnabled ? '차분하게 보는 모드가 켜져 있어요' : '기본 보기 모드예요'}</h4>
+              </div>
+              <button id="btn-toggle-comfort-mode" class="overlay-pill ${comfortEnabled ? 'overlay-pill-emerald' : 'overlay-pill-slate'}">${comfortEnabled ? '끄기' : '켜기'}</button>
+            </div>
+            <p class="mt-3 text-[11px] font-semibold leading-5 text-slate-600">글자를 조금 키우고 움직임을 잔잔하게 줄여서 오래 보더라도 덜 피곤하게 도와줘요.</p>
+          </div>
+        </section>`;
+
+        const styleGuideHtml = `
+        <section class="mb-5">
+          <h3 class="mb-3 flex items-center gap-1 text-sm font-black text-slate-700">돌봄 연출 기준</h3>
+          <div class="rounded-[1.6rem] border border-sky-100 bg-[linear-gradient(180deg,#f5fbff_0%,#ffffff_100%)] p-4 shadow-sm">
+            <div class="grid grid-cols-1 gap-3">
+              ${styleGuidePillars.map((pillar) => `
+                <div class="rounded-2xl bg-white px-3 py-3 text-[11px] font-semibold leading-5 text-slate-600 shadow-sm">${pillar}</div>
+              `).join('')}
+            </div>
+            <div class="mt-4 flex flex-col gap-2">
+              ${styleGuideLanes.map((lane) => `
+                <div class="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-500">${lane}</div>
+              `).join('')}
+            </div>
+          </div>
+        </section>`;
+
+        const bondHtml = `
+        <section class="mb-5">
+          <h3 class="mb-3 flex items-center gap-1 text-sm font-black text-slate-700">유대감</h3>
+          <div class="rounded-[1.6rem] border border-rose-100 bg-[linear-gradient(180deg,#fff7fb_0%,#ffffff_100%)] p-4 shadow-sm">
+            <div class="flex items-center justify-between gap-3">
+              <div>
+                <p class="text-[11px] font-black uppercase tracking-[0.18em] text-rose-400">Bond</p>
+                <h4 class="mt-1 text-lg font-black tracking-[-0.04em] text-slate-900">${this.fsm.getBondTitle()}</h4>
+              </div>
+              <span class="rounded-full bg-rose-50 px-3 py-1 text-xs font-black text-rose-600">하트 ${this.fsm.stats.bond}</span>
+            </div>
+            <div class="mt-3 h-3 overflow-hidden rounded-full bg-rose-100">
+              <div class="h-full rounded-full bg-[linear-gradient(90deg,#fb7185,#f472b6)]" style="width:${Math.max(0, Math.min(100, this.fsm.stats.bond))}%"></div>
+            </div>
+            <p class="mt-3 text-[11px] font-semibold leading-5 text-slate-600">${petName}와 함께한 돌봄과 교감이 차곡차곡 쌓이면서 더 편안한 표정과 반응으로 이어져요.</p>
+            <ul class="mt-4 flex flex-col gap-2">${memories}</ul>
+          </div>
+        </section>`;
+
+        const pmHtml = `
+        <section class="mb-5">
+          <h3 class="mb-3 flex items-center gap-1 text-sm font-black text-slate-700">능력치</h3>
+          <div class="flex flex-col gap-2 rounded-[1.6rem] border border-slate-200 bg-white p-4 shadow-sm">
+            ${pmDefs.map((def) => {
+                const value = (pm as any)[def.key] as number;
+                const pct = Math.max(0, Math.min(100, value));
+                const tier = pct >= 80 ? 'SS' : pct >= 60 ? 'S' : pct >= 40 ? 'A' : pct >= 20 ? 'B' : 'C';
+                return `<div class="flex items-center gap-2">
+                  <span class="w-6 text-center text-base">${def.icon}</span>
+                  <span class="w-10 text-xs font-bold text-slate-700">${def.label}</span>
+                  <div class="h-3 flex-1 overflow-hidden rounded-full bg-slate-100 shadow-inner">
+                    <div class="h-full rounded-full transition-all duration-500" style="width:${pct}%;background:${def.color}"></div>
+                  </div>
+                  <span class="w-7 text-right text-[10px] font-black text-slate-500">${value}</span>
+                  <span class="w-6 rounded-full px-1 text-center text-[10px] font-black" style="color:${def.color}">${tier}</span>
+                </div>`;
+            }).join('')}
+          </div>
+        </section>`;
+
+        const personalitiesHtml = `
+        <section class="mb-5">
+          <h3 class="mb-3 flex items-center gap-1 text-sm font-black text-slate-700">발견한 성격</h3>
+          <div class="grid grid-cols-2 gap-2">
+            ${Object.values(PERSONALITIES).map((personality) => {
+                const copy = personalityCopy[personality.id];
+                const isUnlocked = unlocked.includes(personality.id);
+                const isCurrent = this.fsm.stats.personality === personality.id;
+                return `<div class="relative flex flex-col gap-1 rounded-2xl border p-3 shadow-sm ${isCurrent ? 'border-indigo-400 bg-indigo-100' : isUnlocked ? 'border-slate-200 bg-white' : 'border-slate-200 bg-slate-100 opacity-60'}">
+                  ${isCurrent ? '<div class="absolute -top-2 -right-2 rounded-full bg-indigo-500 px-2 py-0.5 text-[10px] font-bold text-white shadow-md">현재</div>' : ''}
+                  <span class="text-sm font-black ${isUnlocked ? 'text-indigo-800' : 'text-slate-400'}">${isUnlocked ? copy.label : '비공개'}</span>
+                  <span class="text-[10px] leading-tight ${isUnlocked ? 'text-slate-600' : 'text-slate-400'}">${isUnlocked ? copy.description : '조건을 만족하면 성격이 드러나요.'}</span>
+                </div>`;
+            }).join('')}
+          </div>
+        </section>`;
+
+        const passivesHtml = `
+        <section>
+          <h3 class="mb-3 flex items-center gap-1 text-sm font-black text-slate-700">보유 특성</h3>
+          <div class="flex flex-col gap-2">
+            ${allPassives.map((passive) => {
+                const hasPassive = !!(this.fsm.stats as any)[passive.flag];
+                return `<div class="flex items-center gap-3 rounded-xl border p-3 shadow-sm ${hasPassive ? 'border-emerald-200 bg-white' : 'border-slate-200 bg-slate-50 opacity-70'}">
+                  <span class="shrink-0 text-2xl">${hasPassive ? passive.icon : '🔒'}</span>
+                  <div class="flex flex-1 flex-col">
+                    <span class="text-xs font-bold text-slate-800">${passive.name}</span>
+                    <span class="text-[10px] leading-tight text-slate-500">${hasPassive ? passive.desc : passive.how}</span>
+                  </div>
+                  <span class="shrink-0 text-xs font-black ${hasPassive ? 'text-emerald-500' : 'text-slate-400'}">${hasPassive ? '보유' : '잠김'}</span>
+                </div>`;
+            }).join('')}
+          </div>
+        </section>`;
+
+        encContent.innerHTML = comfortHtml + styleGuideHtml + bondHtml + pmHtml + personalitiesHtml + passivesHtml;
+
+        document.getElementById('btn-toggle-comfort-mode')?.addEventListener('click', () => {
+            this.toggleComfortMode();
+        });
+
+        encOverlay.classList.remove('hidden');
+        encOverlay.classList.add('flex');
     }
 
     private formatDurationLabelKr(seconds: number) {
@@ -732,7 +1232,7 @@ export class UIManager {
         r.innerText = emoji;
         r.style.left = `${20 + Math.random() * 60}%`;
         r.style.top = `${20 + Math.random() * 50}%`;
-        c.parentElement!.appendChild(r);
+        (this.stageCardElement ?? c.parentElement ?? this.appRoot).appendChild(r);
         setTimeout(() => {
             r.classList.add('opacity-0', '-translate-y-10', 'transition-all', 'duration-500');
             setTimeout(() => r.remove(), 500);
@@ -882,7 +1382,7 @@ export class UIManager {
 
                 if (this.fsm.consumeItem(it.id)) {
                     const res = it.onSelect(this.fsm);
-                    this.handleActionResult({ ...res, msg: this.getActionFeedback(it.id, res) });
+                    this.handleActionResult({ ...res, msg: this.getReadableActionFeedback(it.id, res) });
                 } else {
                     // Buy flow directly in submenu
                     if (it.unlockReq) {
@@ -912,7 +1412,7 @@ export class UIManager {
                         this.showToast(`${it.price}${it.currency === 'gold' ? 'G' : '💎'}에 바로 준비했어요.`);
                         this.fsm.consumeItem(it.id);
                         const res = it.onSelect(this.fsm);
-                        this.handleActionResult({ ...res, msg: this.getActionFeedback(it.id, res) });
+                        this.handleActionResult({ ...res, msg: this.getReadableActionFeedback(it.id, res) });
                     } else {
                         AUDIO.playError();
                         this.showToast(`${it.currency === 'gold' ? '골드' : '호박석'}가 조금 부족해요.`);
@@ -1514,14 +2014,20 @@ export class UIManager {
         this.updateGrowthPanel();
         const nextMilestone = this.fsm.getNextGrowthMilestone();
         document.getElementById('pet-age-pill')!.textContent = `${this.fsm.getDisplayAgeYears()}살`;
-        document.getElementById('stage-badge')!.textContent = `${this.getStageLabelKr()} 단계`;
-        document.getElementById('season-badge')!.textContent = this.getSeasonLabelKr();
+        document.getElementById('stage-badge')!.textContent = `${this.getReadableStageLabelKr()} 단계`;
+        document.getElementById('season-badge')!.textContent = this.getReadableSeasonLabelKr();
         document.getElementById('growth-caption')!.textContent = this.fsm.getDisplayAgeYears() < 2 ? '첫 성장까지' : '다음 성장까지';
         document.getElementById('growth-next')!.textContent = `${nextMilestone.ageYears}살까지 ${this.formatDurationLabelKr(nextMilestone.secondsUntil)}`;
         document.getElementById('bond-badge')!.textContent = `하트 ${s.bond} · ${this.fsm.getBondTitle()}`;
         document.getElementById('bond-badge')!.classList.remove('hidden');
         this.updateCareFocusPanel();
         this.syncPresentationState();
+        document.getElementById('pet-age-pill')!.textContent = `${this.fsm.getDisplayAgeYears()}살`;
+        document.getElementById('stage-badge')!.textContent = `${this.getReadableStageLabelKr()} 단계`;
+        document.getElementById('season-badge')!.textContent = this.getReadableSeasonLabelKr();
+        document.getElementById('growth-caption')!.textContent = this.fsm.getDisplayAgeYears() < 2 ? '첫 성장까지' : '다음 성장까지';
+        document.getElementById('growth-next')!.textContent = `${nextMilestone.ageYears}살까지 ${this.formatReadableDurationLabelKr(nextMilestone.secondsUntil)}`;
+        document.getElementById('bond-badge')!.textContent = `하트 ${s.bond} · ${this.fsm.getBondTitle()}`;
 
         if (this.animationSkipButton) {
             const showSkip = !!this.fsm.activeAnimation && this.currentOverlay === 'NONE';
@@ -1547,6 +2053,17 @@ export class UIManager {
                 weatherIcon.innerText = "🌋";
                 weatherTitle.innerText = "화산재: 병에 걸려요";
             }
+        }
+
+        if (this.fsm.activeEvent === 'Drought') {
+            weatherIcon.innerText = '☀️';
+            weatherTitle.innerText = '가뭄이 이어지고 있어요';
+        } else if (this.fsm.activeEvent === 'MeteorShower') {
+            weatherIcon.innerText = '🌠';
+            weatherTitle.innerText = '유성우로 훈련 보상이 올라가요';
+        } else if (this.fsm.activeEvent === 'VolcanicAsh') {
+            weatherIcon.innerText = '🌋';
+            weatherTitle.innerText = '화산재 때문에 몸 상태를 잘 살펴야 해요';
         }
 
         // Check Pasture Return
@@ -1608,7 +2125,7 @@ export class UIManager {
             petNameHeader.textContent = s.name || '브라키오';
         }
 
-        this.stateTextElement.innerText = this.getStateBannerText();
+        this.stateTextElement.innerText = this.getReadableStateBannerText();
     }
 
     private initArbeitEvents() {
@@ -1936,7 +2453,7 @@ export class UIManager {
         optsContainer.className = 'speech-options';
         this.speechBubble.appendChild(optsContainer);
 
-        document.getElementById('app')!.appendChild(this.speechBubble);
+        (this.stageCardElement ?? document.getElementById('app')!).appendChild(this.speechBubble);
     }
 
     private initMomentOverlay() {
@@ -2036,7 +2553,7 @@ export class UIManager {
     private showDialogue(res: DialogueResult) {
         const textContainer = document.getElementById('speech-text')!;
         const optsContainer = document.getElementById('speech-options')!;
-        const portrait = res.portrait ?? getDialoguePortrait(
+        const portrait = res.portrait ?? getReadableDialoguePortrait(
             this.getDialogueContext(),
             res.priority >= 2 ? 'state' : res.priority === 1 ? 'action' : 'tap',
             this.fsm.currentState,

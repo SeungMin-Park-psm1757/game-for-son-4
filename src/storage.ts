@@ -53,5 +53,6 @@ export class StorageManager {
 
     public static async clear() {
         await del(STORAGE_KEY);
+        localStorage.removeItem(OLD_STORAGE_KEY);
     }
 }

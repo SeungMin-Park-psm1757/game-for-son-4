@@ -113,11 +113,11 @@ export class CanvasRenderer {
     }
 
     private syncCanvasSize() {
-        const dpr = Math.max(1, window.devicePixelRatio || 1);
         const cssWidth = Math.max(1, Math.floor(this.canvas.clientWidth || this.canvas.width));
         const cssHeight = Math.max(1, Math.floor(this.canvas.clientHeight || this.canvas.height));
-        const pixelWidth = Math.floor(cssWidth * dpr);
-        const pixelHeight = Math.floor(cssHeight * dpr);
+        const pixelDensity = cssWidth <= 430 ? 0.58 : cssWidth <= 680 ? 0.72 : 0.88;
+        const pixelWidth = Math.max(160, Math.floor(cssWidth * pixelDensity));
+        const pixelHeight = Math.max(160, Math.floor(cssHeight * pixelDensity));
 
         if (this.canvas.width !== pixelWidth || this.canvas.height !== pixelHeight) {
             this.canvas.width = pixelWidth;
@@ -125,7 +125,8 @@ export class CanvasRenderer {
         }
 
         this.ctx = this.canvas.getContext('2d')!;
-        this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        this.ctx.setTransform(pixelWidth / cssWidth, 0, 0, pixelHeight / cssHeight, 0, 0);
+        this.ctx.imageSmoothingEnabled = false;
         this.width = cssWidth;
         this.height = cssHeight;
     }
@@ -173,10 +174,102 @@ export class CanvasRenderer {
         ctx.fill();
     }
 
+    private fillPixelRect(x: number, y: number, width: number, height: number, color: string, alpha: number = 1) {
+        this.ctx.save();
+        this.ctx.globalAlpha = alpha;
+        this.ctx.fillStyle = color;
+        this.ctx.fillRect(
+            Math.round(x),
+            Math.round(y),
+            Math.max(1, Math.round(width)),
+            Math.max(1, Math.round(height)),
+        );
+        this.ctx.restore();
+    }
+
+    private drawPixelStar(x: number, y: number, color: string = '#fff6bf') {
+        this.fillPixelRect(x, y, 2, 2, color, 0.95);
+        this.fillPixelRect(x - 2, y + 1, 6, 1, color, 0.8);
+        this.fillPixelRect(x + 1, y - 2, 1, 6, color, 0.8);
+    }
+
+    private drawSleepBackdrop(sleepType: 'bed' | 'floor' | 'outside', tickCount: number) {
+        const ctx = this.ctx;
+        const isOutside = sleepType === 'outside';
+        const sky = ctx.createLinearGradient(0, 0, 0, this.height);
+
+        if (sleepType === 'bed') {
+            sky.addColorStop(0, '#14254b');
+            sky.addColorStop(0.6, '#263d73');
+            sky.addColorStop(1, '#50638a');
+        } else if (sleepType === 'floor') {
+            sky.addColorStop(0, '#18264a');
+            sky.addColorStop(0.6, '#31466f');
+            sky.addColorStop(1, '#5a6f8f');
+        } else {
+            sky.addColorStop(0, '#071a37');
+            sky.addColorStop(0.58, '#16315a');
+            sky.addColorStop(1, '#22446f');
+        }
+
+        ctx.fillStyle = sky;
+        ctx.fillRect(0, 0, this.width, this.height);
+
+        if (isOutside) {
+            this.fillPixelRect(0, this.height * 0.68, this.width, this.height * 0.32, '#294b4f');
+            this.fillPixelRect(0, this.height * 0.8, this.width, this.height * 0.2, '#183238');
+            this.fillPixelRect(this.width - 88, 28, 22, 22, '#fff1a8', 0.95);
+            this.fillPixelRect(this.width - 82, 34, 14, 14, '#ffe58a', 0.95);
+
+            const starDrift = Math.sin(tickCount / 26) * 1.5;
+            [[44, 26], [82, 52], [124, 34], [176, 60], [242, 38], [292, 54]].forEach(([x, y]) => {
+                this.drawPixelStar(x, y + starDrift);
+            });
+
+            this.fillPixelRect(26, this.height - 118, 64, 44, '#33536d');
+            this.fillPixelRect(34, this.height - 126, 48, 12, '#f3d98a');
+            this.fillPixelRect(42, this.height - 74, 4, 26, '#473528');
+            this.fillPixelRect(this.width - 60, this.height - 112, 10, 34, '#574736');
+            this.fillPixelRect(this.width - 68, this.height - 118, 26, 12, '#ffd875', 0.9);
+            this.fillPixelRect(this.width * 0.28, this.height - 108, this.width * 0.44, 18, '#93b5da');
+            this.fillPixelRect(this.width * 0.32, this.height - 90, this.width * 0.36, 16, '#d5e6ff');
+        } else if (sleepType === 'bed') {
+            this.fillPixelRect(0, this.height * 0.74, this.width, this.height * 0.26, '#7a614e');
+            this.fillPixelRect(0, this.height * 0.78, this.width, this.height * 0.22, '#5c4638');
+            this.fillPixelRect(this.width - 86, 26, 44, 34, '#8fb5ff', 0.95);
+            this.fillPixelRect(this.width - 78, 34, 28, 18, '#dfe8ff', 0.95);
+            this.fillPixelRect(this.width - 70, 38, 12, 12, '#fff0a8', 0.95);
+            this.fillPixelRect(28, this.height - 132, this.width - 56, 14, '#a17468');
+            this.fillPixelRect(44, this.height - 118, this.width - 88, 44, '#d9b8a3');
+            this.fillPixelRect(58, this.height - 106, this.width - 116, 26, '#b7d2f5');
+            this.fillPixelRect(74, this.height - 112, 30, 14, '#f8f3df');
+            this.fillPixelRect(this.width - 58, this.height - 138, 8, 42, '#5f493e');
+            this.fillPixelRect(this.width - 66, this.height - 146, 24, 12, '#ffd68a');
+        } else {
+            this.fillPixelRect(0, this.height * 0.73, this.width, this.height * 0.27, '#846e5d');
+            this.fillPixelRect(0, this.height * 0.8, this.width, this.height * 0.2, '#6d594c');
+            this.fillPixelRect(20, 34, 54, 14, '#9fbcdf');
+            this.fillPixelRect(20, 48, 10, 56, '#c6d7e8');
+            this.fillPixelRect(this.width - 76, 30, 28, 18, '#d7e6f5');
+            this.fillPixelRect(this.width - 66, 48, 8, 44, '#f0d899');
+            this.fillPixelRect(this.width * 0.25, this.height - 110, this.width * 0.5, 22, '#9bb0d2');
+            this.fillPixelRect(this.width * 0.3, this.height - 92, this.width * 0.4, 16, '#ecf0f4');
+            this.fillPixelRect(this.width * 0.33, this.height - 104, 26, 12, '#f6f0de');
+        }
+
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.06)';
+        ctx.fillRect(0, 0, this.width, this.height);
+    }
+
     private drawBackground(state: PetState, tickCount: number, animId?: string) {
         const ctx = this.ctx;
         const theme = getStageBackdropTheme(this.fsm.stats.evolutionTier, this.fsm.stats.bond, state);
         ctx.clearRect(0, 0, this.width, this.height);
+
+        if (state === 'Sleep' && this.fsm.sleepType) {
+            this.drawSleepBackdrop(this.fsm.sleepType, tickCount);
+            return;
+        }
 
         const sky = ctx.createLinearGradient(0, 0, 0, this.height);
         sky.addColorStop(0, theme.skyTop);
@@ -1238,13 +1331,13 @@ export class CanvasRenderer {
         // ── Canvas transform ──────────────────────────────────────────────
         this.ctx.save();
         const currentWanderX = this.fsm.wanderX || 0;
-        const renderX = this.width / 2 + currentWanderX + renderShiftX;
+        const renderX = Math.round(this.width / 2 + currentWanderX + renderShiftX);
         const flipH = !animation && this.fsm.wanderTargetX < this.fsm.wanderX;
 
-        const stageGroundRatio = this.height < 300 ? 0.675 : this.height < 360 ? 0.69 : 0.72;
-        const stageGroundAdjust = growthProfile.id === 'baby' ? -0.03 : growthProfile.id === 'adult' ? 0.01 : 0;
-        const stageGroundY = this.height * (stageGroundRatio + stageGroundAdjust);
-        this.ctx.translate(renderX, stageGroundY + breath + bodyOscillationY);
+        const stageGroundRatio = this.height < 300 ? 0.615 : this.height < 360 ? 0.638 : 0.665;
+        const stageGroundAdjust = growthProfile.id === 'baby' ? -0.05 : growthProfile.id === 'adult' ? 0.002 : -0.012;
+        const stageGroundY = Math.round(this.height * (stageGroundRatio + stageGroundAdjust));
+        this.ctx.translate(renderX, Math.round(stageGroundY + breath + bodyOscillationY));
         if (flipH) this.ctx.scale(-1, 1);
 
         // ── Body color by state ───────────────────────────────────────────

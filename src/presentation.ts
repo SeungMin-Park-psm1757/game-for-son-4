@@ -47,6 +47,19 @@ export const CARE_STYLE_GUIDE = {
     ],
 } as const;
 
+export const CARE_STYLE_GUIDE_COPY = {
+    pillars: [
+        '브라키오의 표정과 상태가 숫자보다 먼저 읽히도록 만든다.',
+        'HUD는 돌봄 흐름만 남기고 장식보다 정보 위계를 우선한다.',
+        '모션은 과장보다 안정감을 유지하고, 편안 모드에서는 더 잔잔해진다.',
+    ],
+    paletteLanes: [
+        'care: 민트와 하늘색으로 안정과 회복을 표현한다.',
+        'bond: 로즈와 피치로 유대감과 따뜻함을 표현한다.',
+        'alert: 샌드와 인디고로 성장과 주의 신호를 분리한다.',
+    ],
+} as const;
+
 const BACKDROPS: Record<GrowthStageId, StageBackdropTheme> = {
     baby: {
         skyTop: '#e4f8ff',
@@ -439,6 +452,222 @@ export function getDialoguePortrait(
         profile.moodLabel = '조심스러운 얼굴';
         profile.badgeText = '부드럽게 다가와 주세요';
         profile.sticker = '🌱';
+        profile.eyes = 'round';
+        profile.mouth = 'small';
+    }
+
+    return profile;
+}
+
+export function getReadableDialoguePortrait(
+    context: DialogueContext,
+    intent: 'idle' | 'action' | 'state' | 'tap',
+    tag: string = '',
+): DialoguePortraitAsset {
+    const bondTier = getBondTier(context.bond);
+    const state = context.fsmState;
+    const profile: DialoguePortraitAsset = {
+        palette: 'mint',
+        moodLabel: '차분한 시선',
+        badgeText: '살짝 집중하는 중',
+        sticker: '🌿',
+        eyes: 'soft',
+        mouth: 'smile',
+    };
+
+    if (state === 'Sleep' || state === 'Sleepy') {
+        return {
+            palette: 'indigo',
+            moodLabel: '졸린 얼굴',
+            badgeText: '조금 쉬고 싶어요',
+            sticker: '🌙',
+            eyes: 'sleepy',
+            mouth: 'small',
+        };
+    }
+
+    if (state === 'Hungry') {
+        return {
+            palette: 'amber',
+            moodLabel: '배고픈 눈빛',
+            badgeText: '간식이 생각나요',
+            sticker: '🌿',
+            eyes: 'round',
+            mouth: 'small',
+        };
+    }
+
+    if (state === 'Dirty') {
+        return {
+            palette: 'sky',
+            moodLabel: '정리 기다리는 얼굴',
+            badgeText: '씻으면 개운해져요',
+            sticker: '🫧',
+            eyes: 'concerned',
+            mouth: 'flat',
+        };
+    }
+
+    if (state === 'Sick') {
+        return {
+            palette: 'indigo',
+            moodLabel: '몸 상태를 살피는 얼굴',
+            badgeText: '조심스럽게 돌봐 주세요',
+            sticker: '💊',
+            eyes: 'concerned',
+            mouth: 'small',
+        };
+    }
+
+    if (state === 'Naughty') {
+        return {
+            palette: 'amber',
+            moodLabel: '심통난 표정',
+            badgeText: '장난기가 올라왔어요',
+            sticker: '💢',
+            eyes: 'wink',
+            mouth: 'pout',
+        };
+    }
+
+    if (intent === 'state') {
+        return {
+            palette: bondTier === 'deep' ? 'rose' : 'sky',
+            moodLabel: bondTier === 'deep' ? '마음이 놓인 얼굴' : '조금 더 기다리는 얼굴',
+            badgeText: bondTier === 'deep' ? '곁에 있으면 든든해요' : '한 번만 더 알려 주세요',
+            sticker: bondTier === 'deep' ? '💞' : '🫶',
+            eyes: bondTier === 'deep' ? 'soft' : 'concerned',
+            mouth: bondTier === 'deep' ? 'smile' : 'small',
+        };
+    }
+
+    if (intent === 'action' || isActionIntent(tag)) {
+        if (tag.startsWith('wash_')) {
+            return {
+                palette: 'sky',
+                moodLabel: '말끔해진 얼굴',
+                badgeText: '보송보송해졌어요',
+                sticker: '🫧',
+                eyes: 'smile',
+                mouth: 'smile',
+            };
+        }
+
+        if (tag.startsWith('train_')) {
+            return {
+                palette: 'mint',
+                moodLabel: '몸이 풀린 얼굴',
+                badgeText: '같이 움직여 즐거워요',
+                sticker: '⚽',
+                eyes: 'sparkle',
+                mouth: 'open',
+            };
+        }
+
+        if (tag === 'interact_praise') {
+            return {
+                palette: 'rose',
+                moodLabel: '칭찬을 받는 얼굴',
+                badgeText: '마음이 몽글해져요',
+                sticker: '💗',
+                eyes: 'soft',
+                mouth: 'heart',
+            };
+        }
+
+        if (tag === 'interact_scold') {
+            return {
+                palette: 'amber',
+                moodLabel: '머쓱한 얼굴',
+                badgeText: '금방 다시 잘할게요',
+                sticker: '💭',
+                eyes: 'concerned',
+                mouth: 'pout',
+            };
+        }
+
+        if (tag.startsWith('feed_')) {
+            return {
+                palette: 'amber',
+                moodLabel: '먹이를 기다리는 얼굴',
+                badgeText: '한입 준비 끝',
+                sticker: '🌿',
+                eyes: 'round',
+                mouth: 'open',
+            };
+        }
+    }
+
+    if (intent === 'tap') {
+        if (bondTier === 'deep') {
+            return {
+                palette: 'rose',
+                moodLabel: '익숙하게 웃는 얼굴',
+                badgeText: '네가 만져 주면 좋아요',
+                sticker: '💞',
+                eyes: 'soft',
+                mouth: 'heart',
+            };
+        }
+
+        if (bondTier === 'trusting') {
+            return {
+                palette: 'mint',
+                moodLabel: '마음이 열린 얼굴',
+                badgeText: '가까이 와도 편안해요',
+                sticker: '🌱',
+                eyes: 'smile',
+                mouth: 'smile',
+            };
+        }
+
+        if (bondTier === 'growing') {
+            return {
+                palette: 'sky',
+                moodLabel: '조금 편안한 얼굴',
+                badgeText: '조금씩 가까워지고 있어요',
+                sticker: '🫶',
+                eyes: 'soft',
+                mouth: 'smile',
+            };
+        }
+
+        return {
+            palette: 'amber',
+            moodLabel: '아직 낯선 얼굴',
+            badgeText: '천천히 친해지는 중',
+            sticker: '🌼',
+            eyes: 'round',
+            mouth: 'small',
+        };
+    }
+
+    if (bondTier === 'deep') {
+        profile.palette = 'rose';
+        profile.moodLabel = '애정을 묻는 얼굴';
+        profile.badgeText = '오늘도 네가 좋아요';
+        profile.sticker = '💞';
+        profile.eyes = 'soft';
+        profile.mouth = 'heart';
+    } else if (bondTier === 'trusting') {
+        profile.palette = 'mint';
+        profile.moodLabel = '마음이 열린 얼굴';
+        profile.badgeText = '곁에 있으면 편안해요';
+        profile.sticker = '🌱';
+        profile.eyes = 'smile';
+        profile.mouth = 'smile';
+    } else if (bondTier === 'growing') {
+        profile.palette = 'sky';
+        profile.moodLabel = '익숙해지는 얼굴';
+        profile.badgeText = '천천히 가까워지고 있어요';
+        profile.sticker = '🫶';
+        profile.eyes = 'soft';
+        profile.mouth = 'smile';
+    } else {
+        profile.palette = 'amber';
+        profile.moodLabel = '조심스러운 얼굴';
+        profile.badgeText = '부드럽게 다가와 주세요';
+        profile.sticker = '🌼';
         profile.eyes = 'round';
         profile.mouth = 'small';
     }
